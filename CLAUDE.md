@@ -44,18 +44,20 @@ docker-compose.yml      SQLite用ボリューム付きの単一サービス構�
 ## データモデル
 
 - `members`: id(uuid), name, color, created_at — タスクの担当者
-- `projects`: id(uuid), name, color, created_at — タイムラインの行の単位
+- `projects`: id(uuid), name, color, member_id(FK, 任意), created_at — タイムラインの行の単位。`member_id`はデフォルト担当者(タイムライン上でタスクを追加する際の初期値)
 - `groups`: id(uuid), project_id(FK), name, color, created_at — プロジェクト内でタスクを後から束ねる任意の集合(PowerPointの要素グループ化に近い)。1グループは1プロジェクトに属する
-- `tasks`: id(uuid), project_id(FK, 必須), group_id(FK, 任意/NULL可), member_id(FK), title, description, status(todo/in_progress/done), start_date, end_date, node_x, node_y(グラフ上の座標), created_at, updated_at
+- `tasks`: id(uuid), project_id(FK, 必須), group_id(FK, 任意/NULL可), member_id(FK), title, description, status(todo/in_progress/done), priority(high/medium/low), start_date, end_date, node_x, node_y(グラフ上の座標), created_at, updated_at
   - タスクはプロジェクトに直接所属(必須)。グループへの所属は任意で、グループなしのタスクも存在できる
   - グループを削除してもタスクは消えない(`group_id`がNULLに戻るだけ。`ON DELETE SET NULL`)
 - `task_dependencies`: task_id, depends_on_task_id の複合主キー。「task_idはdepends_on_task_idの完了に依存する」というエッジ。ON DELETE CASCADEでタスク削除時に自動でエッジも消える。
+- `timelines` / `timeline_projects`: タイムラインのタブ。ユーザーが自由に作成し、`timeline_projects`(多対多)で表示するプロジェクトを紐づける。「全体」タブは実体を持たないUI上の特別扱い(全プロジェクト表示)。
 
 ## API
 
 - `GET/POST /api/members`, `PUT/DELETE /api/members/{id}`
-- `GET/POST /api/projects`, `PUT/DELETE /api/projects/{id}`
+- `GET/POST /api/projects`, `PUT/DELETE /api/projects/{id}` — `member_id` は空文字でデフォルト担当者解除
 - `GET/POST /api/groups`, `PUT/DELETE /api/groups/{id}`
+- `GET/POST /api/timelines`, `PUT/DELETE /api/timelines/{id}` — body/レスポンスに `project_ids: string[]` を含む。更新時に`project_ids`を送ると紐づけを丸ごと置き換える
 - `GET/POST /api/tasks`, `PUT/DELETE /api/tasks/{id}` — GETのレスポンスは各タスクに `depends_on: string[]` を含む(`task_dependencies` を集約したもの)。`group_id` は空文字を送るとグループ解除(NULL)として扱われる
 - `POST /api/tasks/{id}/dependencies` body `{ depends_on_task_id }` — 依存エッジ追加
 - `DELETE /api/tasks/{task_id}/dependencies/{depends_on_task_id}` — 依存エッジ削除
@@ -80,6 +82,10 @@ cd server && cargo build --release
 docker compose up --build -d
 # ホスト側の公開ポートはデフォルト8090(コンテナ内は8080固定)。8080がホストで別プロセスに
 # 使われている環境でも衝突しないようにするため。変えたい場合は HOST_PORT=xxxx で上書きできる。
+
+# サンプルデータ投入(まっさらな状態を想定。手動でのデータ作成が面倒なとき用)
+python3 scripts/seed.py
+API_BASE="http://localhost:8123" python3 scripts/seed.py  # ポートを変えている場合
 ```
 
 一区切りの作業(Issue対応など)が完了したら、`docker compose up --build -d` でローカルのDocker環境も最新のコードに更新・再起動しておく。ローカルの実行中コンテナがコードと乖離したままにならないようにするため。
@@ -92,6 +98,10 @@ docker compose up --build -d
 - SQLiteのマイグレーションは `server/migrations/*.sql` に追加し、`sqlx::migrate!("./migrations")` で起動時に自動適用される(`db.rs`)。マイグレーションファイルはコンパイル時にバイナリへ埋め込まれるため、Dockerの実行用ステージにmigrationsディレクトリをコピーする必要はない。
   - **一度適用されたマイグレーションファイルの中身は変更しない。** sqlxはファイルごとにチェックサムを記録しており、適用済みのファイルを書き換えて再起動すると `migration N was previously applied but has been modified` で起動不能になる(実際に開発中のDockerボリュームで発生した)。スキーマを直したい場合は新しい番号のマイグレーションファイルを追加する。ローカル/Dockerのdata volumeしか汚れていない場合は `rm -rf server/data`(ローカル)や `docker compose down -v`(Docker)でボリュームごと作り直しても良い。
 - タイムラインの日付範囲は現状「2026年通年+実タスクの範囲」を表示する固定仕様(`TimelineView.tsx`の`YEAR_START`/`YEAR_END`)。可変レンジ化は将来対応。
+- タイムラインの日付ヘッダは年/月/日の3段組み(`groupConsecutive`で連続する日付を年・月単位にまとめてセル幅を決めている)。土曜は青、日曜は赤で色分け。
+- タイムラインのタスクバーの色はステータスで切り替える(`barStyle()`関数): 未着手=担当者カラーを半透明、進行中=担当者カラー原色、完了=枠線が担当者カラーで内側は視認性重視の濃いめグレー(`#9ca3af`)固定。
+- タイムラインの空いている場所をクリックするとその日を開始日・終了日にしたタスク追加ダイアログが開く(`handleRowClick`)。クリック判定は`(e.target as HTMLElement).closest('button')`でタスクバー等のボタン要素上のクリックを除外している。
+- タイムラインのタブ(`timelines`)はプロジェクトの表示絞り込みに使う。「全体」タブはDBに存在しない特別なUI状態(`activeTimelineId === null`)。
 - 依存関係グラフのノード位置(`node_x`, `node_y`)はドラッグ終了時にAPIへPUTして永続化する。初期値(0, 0)のタスクは自動グリッド配置にフォールバックする(`GraphView.tsx`)。
 - git運用: `main`を汚さないよう`develop`ブランチで作業し、区切りの良いところでPRにまとめる。
 - **commit / push / PR作成など、リポジトリの状態や履歴を変える操作は必ず事前にユーザーに確認を取り、了承を得てから実行する。** 了承なしに勝手に実行しない。

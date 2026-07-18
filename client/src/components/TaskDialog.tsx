@@ -18,8 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { CreateTaskInput, Group, Member, Project, Status, Task, UpdateTaskInput } from '@/types';
-import { STATUS_LABEL, STATUS_ORDER, todayStr } from '@/utils';
+import type { CreateTaskInput, Group, Member, Priority, Project, Status, Task, UpdateTaskInput } from '@/types';
+import { PRIORITY_LABEL, PRIORITY_ORDER, projectOf, STATUS_LABEL, STATUS_ORDER, todayStr } from '@/utils';
 
 const NO_GROUP = '__none__';
 
@@ -33,10 +33,23 @@ interface Props {
   defaultMemberId?: string;
   defaultProjectId?: string;
   defaultGroupId?: string;
+  defaultStartDate?: string;
+  defaultEndDate?: string;
   onSubmit: (data: CreateTaskInput | UpdateTaskInput, dependsOn: string[]) => Promise<void>;
   onDelete?: () => Promise<void>;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+}
+
+function initialMemberId(
+  task: Task | undefined,
+  projects: Project[],
+  projectId: string,
+  defaultMemberId: string | undefined,
+  fallback: string,
+): string {
+  if (task) return task.member_id;
+  return defaultMemberId ?? projectOf(projects, projectId)?.member_id ?? fallback;
 }
 
 export function TaskDialog({
@@ -49,6 +62,8 @@ export function TaskDialog({
   defaultMemberId,
   defaultProjectId,
   defaultGroupId,
+  defaultStartDate,
+  defaultEndDate,
   onSubmit,
   onDelete,
   open: controlledOpen,
@@ -58,12 +73,15 @@ export function TaskDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
   const [title, setTitle] = useState(task?.title ?? '');
-  const [memberId, setMemberId] = useState(task?.member_id ?? defaultMemberId ?? members[0]?.id ?? '');
   const [projectId, setProjectId] = useState(task?.project_id ?? defaultProjectId ?? projects[0]?.id ?? '');
+  const [memberId, setMemberId] = useState(() =>
+    initialMemberId(task, projects, task?.project_id ?? defaultProjectId ?? projects[0]?.id ?? '', defaultMemberId, members[0]?.id ?? ''),
+  );
   const [groupId, setGroupId] = useState(task?.group_id ?? defaultGroupId ?? NO_GROUP);
   const [status, setStatus] = useState<Status>(task?.status ?? 'todo');
-  const [startDate, setStartDate] = useState(task?.start_date ?? todayStr());
-  const [endDate, setEndDate] = useState(task?.end_date ?? todayStr());
+  const [priority, setPriority] = useState<Priority>(task?.priority ?? 'medium');
+  const [startDate, setStartDate] = useState(task?.start_date ?? defaultStartDate ?? todayStr());
+  const [endDate, setEndDate] = useState(task?.end_date ?? defaultEndDate ?? defaultStartDate ?? todayStr());
   const [description, setDescription] = useState(task?.description ?? '');
   const [dependsOn, setDependsOn] = useState<string[]>(task?.depends_on ?? []);
   const [saving, setSaving] = useState(false);
@@ -72,13 +90,15 @@ export function TaskDialog({
 
   useEffect(() => {
     if (open) {
+      const pid = task?.project_id ?? defaultProjectId ?? projects[0]?.id ?? '';
       setTitle(task?.title ?? '');
-      setMemberId(task?.member_id ?? defaultMemberId ?? members[0]?.id ?? '');
-      setProjectId(task?.project_id ?? defaultProjectId ?? projects[0]?.id ?? '');
+      setProjectId(pid);
+      setMemberId(initialMemberId(task, projects, pid, defaultMemberId, members[0]?.id ?? ''));
       setGroupId(task?.group_id ?? defaultGroupId ?? NO_GROUP);
       setStatus(task?.status ?? 'todo');
-      setStartDate(task?.start_date ?? todayStr());
-      setEndDate(task?.end_date ?? todayStr());
+      setPriority(task?.priority ?? 'medium');
+      setStartDate(task?.start_date ?? defaultStartDate ?? todayStr());
+      setEndDate(task?.end_date ?? defaultEndDate ?? defaultStartDate ?? todayStr());
       setDescription(task?.description ?? '');
       setDependsOn(task?.depends_on ?? []);
     }
@@ -88,6 +108,10 @@ export function TaskDialog({
   function handleProjectChange(nextProjectId: string) {
     setProjectId(nextProjectId);
     setGroupId(NO_GROUP);
+    if (!task) {
+      const nextProject = projectOf(projects, nextProjectId);
+      if (nextProject?.member_id) setMemberId(nextProject.member_id);
+    }
   }
 
   function toggleDep(id: string) {
@@ -106,6 +130,7 @@ export function TaskDialog({
           title: title.trim(),
           description,
           status,
+          priority,
           start_date: startDate,
           end_date: endDate < startDate ? startDate : endDate,
         },
@@ -219,6 +244,22 @@ export function TaskDialog({
               <Label htmlFor="task-end">終了日</Label>
               <Input id="task-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label>優先度</Label>
+            <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRIORITY_ORDER.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {PRIORITY_LABEL[p]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="grid gap-2">

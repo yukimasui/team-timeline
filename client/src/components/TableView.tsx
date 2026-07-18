@@ -1,6 +1,6 @@
 import type { CreateTaskInput, Group, Member, Project, Task, UpdateTaskInput } from '@/types';
 import { TaskDialog } from './TaskDialog';
-import { groupOf, memberOf, projectOf, STATUS_LABEL } from '@/utils';
+import { groupOf, memberOf, PRIORITY_LABEL, projectOf, STATUS_LABEL } from '@/utils';
 
 interface Props {
   members: Member[];
@@ -25,6 +25,7 @@ export function TableView({ members, projects, groups, tasks, onCreateTask, onUp
             <th className="px-3 py-2 font-medium">グループ</th>
             <th className="px-3 py-2 font-medium">担当者</th>
             <th className="px-3 py-2 font-medium">ステータス</th>
+            <th className="px-3 py-2 font-medium">優先度</th>
             <th className="px-3 py-2 font-medium">開始日</th>
             <th className="px-3 py-2 font-medium">終了日</th>
             <th className="px-3 py-2 font-medium">依存先</th>
@@ -66,6 +67,7 @@ export function TableView({ members, projects, groups, tasks, onCreateTask, onUp
                       </span>
                     </td>
                     <td className="px-3 py-2">{STATUS_LABEL[t.status]}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{PRIORITY_LABEL[t.priority]}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.start_date}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.end_date}</td>
                     <td className="px-3 py-2 text-muted-foreground">{depNames || '-'}</td>

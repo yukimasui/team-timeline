@@ -10,11 +10,18 @@ use crate::{
     AppState,
 };
 
+async fn fetch_project(state: &AppState, id: &str) -> Result<Project, AppError> {
+    let project = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = ?")
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await?;
+    Ok(project)
+}
+
 pub async fn list_projects(State(state): State<AppState>) -> Result<Json<Vec<Project>>, AppError> {
-    let projects =
-        sqlx::query_as::<_, Project>("SELECT id, name, color, created_at FROM projects ORDER BY created_at")
-            .fetch_all(&state.pool)
-            .await?;
+    let projects = sqlx::query_as::<_, Project>("SELECT * FROM projects ORDER BY created_at")
+        .fetch_all(&state.pool)
+        .await?;
     Ok(Json(projects))
 }
 
@@ -27,19 +34,17 @@ pub async fn create_project(
     }
     let id = uuid::Uuid::new_v4().to_string();
     let color = payload.color.unwrap_or_else(|| "#6366f1".to_string());
+    let member_id = payload.member_id.filter(|s| !s.is_empty());
 
-    sqlx::query("INSERT INTO projects (id, name, color) VALUES (?, ?, ?)")
+    sqlx::query("INSERT INTO projects (id, name, color, member_id) VALUES (?, ?, ?, ?)")
         .bind(&id)
         .bind(&payload.name)
         .bind(&color)
+        .bind(&member_id)
         .execute(&state.pool)
         .await?;
 
-    let project = sqlx::query_as::<_, Project>("SELECT id, name, color, created_at FROM projects WHERE id = ?")
-        .bind(&id)
-        .fetch_one(&state.pool)
-        .await?;
-    Ok(Json(project))
+    Ok(Json(fetch_project(&state, &id).await?))
 }
 
 pub async fn update_project(
@@ -47,26 +52,25 @@ pub async fn update_project(
     Path(id): Path<String>,
     Json(payload): Json<UpdateProject>,
 ) -> Result<Json<Project>, AppError> {
-    let existing = sqlx::query_as::<_, Project>("SELECT id, name, color, created_at FROM projects WHERE id = ?")
-        .bind(&id)
-        .fetch_one(&state.pool)
-        .await?;
+    let existing = fetch_project(&state, &id).await?;
 
     let name = payload.name.unwrap_or(existing.name);
     let color = payload.color.unwrap_or(existing.color);
+    let member_id = match payload.member_id {
+        None => existing.member_id,
+        Some(s) if s.is_empty() => None,
+        Some(s) => Some(s),
+    };
 
-    sqlx::query("UPDATE projects SET name = ?, color = ? WHERE id = ?")
+    sqlx::query("UPDATE projects SET name = ?, color = ?, member_id = ? WHERE id = ?")
         .bind(&name)
         .bind(&color)
+        .bind(&member_id)
         .bind(&id)
         .execute(&state.pool)
         .await?;
 
-    let project = sqlx::query_as::<_, Project>("SELECT id, name, color, created_at FROM projects WHERE id = ?")
-        .bind(&id)
-        .fetch_one(&state.pool)
-        .await?;
-    Ok(Json(project))
+    Ok(Json(fetch_project(&state, &id).await?))
 }
 
 pub async fn delete_project(

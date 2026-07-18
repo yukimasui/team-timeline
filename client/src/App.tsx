@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import type { CreateGroupInput, CreateProjectInput, CreateTaskInput, Group, Member, Project, Task, UpdateTaskInput } from './types';
+import type {
+  CreateGroupInput,
+  CreateProjectInput,
+  CreateTaskInput,
+  CreateTimelineInput,
+  Group,
+  Member,
+  Project,
+  Task,
+  Timeline,
+  UpdateTaskInput,
+} from './types';
 import { MemberDialog } from './components/MemberDialog';
 import { ProjectDialog } from './components/ProjectDialog';
 import { GroupDialog } from './components/GroupDialog';
@@ -23,6 +34,7 @@ function App() {
   const [members, setMembers] = useState<Member[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<ViewKey>('timeline');
   const [loading, setLoading] = useState(true);
@@ -32,10 +44,17 @@ function App() {
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
   async function refresh() {
-    const [m, p, g, t] = await Promise.all([api.listMembers(), api.listProjects(), api.listGroups(), api.listTasks()]);
+    const [m, p, g, tl, t] = await Promise.all([
+      api.listMembers(),
+      api.listProjects(),
+      api.listGroups(),
+      api.listTimelines(),
+      api.listTasks(),
+    ]);
     setMembers(m);
     setProjects(p);
     setGroups(g);
+    setTimelines(tl);
     setTasks(t);
   }
 
@@ -98,6 +117,27 @@ function App() {
   async function handleDeleteGroup(id: string) {
     await withErrorHandling(async () => {
       await api.deleteGroup(id);
+      await refresh();
+    });
+  }
+
+  async function handleCreateTimeline(data: CreateTimelineInput) {
+    await withErrorHandling(async () => {
+      await api.createTimeline(data);
+      await refresh();
+    });
+  }
+
+  async function handleUpdateTimeline(id: string, data: CreateTimelineInput) {
+    await withErrorHandling(async () => {
+      await api.updateTimeline(id, data);
+      await refresh();
+    });
+  }
+
+  async function handleDeleteTimeline(id: string) {
+    await withErrorHandling(async () => {
+      await api.deleteTimeline(id);
       await refresh();
     });
   }
@@ -167,6 +207,7 @@ function App() {
         <div className="flex items-center gap-2">
           <MemberDialog onCreate={handleCreateMember} />
           <ProjectDialog
+            members={members}
             onSubmit={handleCreateProject}
             trigger={<button type="button" className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">+ プロジェクト</button>}
           />
@@ -230,9 +271,13 @@ function App() {
               projects={projects}
               groups={groups}
               tasks={tasks}
+              timelines={timelines}
               onCreateTask={handleCreateTask}
               onUpdateTask={handleUpdateTask}
               onDeleteTask={handleDeleteTask}
+              onCreateTimeline={handleCreateTimeline}
+              onUpdateTimeline={handleUpdateTimeline}
+              onDeleteTimeline={handleDeleteTimeline}
               onOpenProject={setEditingProjectId}
               onOpenGroup={setEditingGroupId}
             />
@@ -288,6 +333,7 @@ function App() {
 
       {editingProject && (
         <ProjectDialog
+          members={members}
           project={editingProject}
           open={Boolean(editingProjectId)}
           onOpenChange={(o) => !o && setEditingProjectId(null)}

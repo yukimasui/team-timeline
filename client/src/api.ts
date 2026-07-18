@@ -3,12 +3,15 @@ import type {
   CreateMemberInput,
   CreateProjectInput,
   CreateTaskInput,
+  CreateTimelineInput,
   Group,
   Member,
   Project,
   Task,
+  Timeline,
   UpdateGroupInput,
   UpdateTaskInput,
+  UpdateTimelineInput,
 } from './types';
 
 const BASE = '/api';
@@ -50,6 +53,13 @@ export const api = {
   updateGroup: (id: string, data: UpdateGroupInput) =>
     fetch(`${BASE}/groups/${id}`, json('PUT', data)).then((r) => handle<Group>(r)),
   deleteGroup: (id: string) => fetch(`${BASE}/groups/${id}`, json('DELETE')).then((r) => handle<void>(r)),
+
+  listTimelines: () => fetch(`${BASE}/timelines`).then((r) => handle<Timeline[]>(r)),
+  createTimeline: (data: CreateTimelineInput) =>
+    fetch(`${BASE}/timelines`, json('POST', data)).then((r) => handle<Timeline>(r)),
+  updateTimeline: (id: string, data: UpdateTimelineInput) =>
+    fetch(`${BASE}/timelines/${id}`, json('PUT', data)).then((r) => handle<Timeline>(r)),
+  deleteTimeline: (id: string) => fetch(`${BASE}/timelines/${id}`, json('DELETE')).then((r) => handle<void>(r)),
 
   listTasks: () => fetch(`${BASE}/tasks`).then((r) => handle<Task[]>(r)),
   createTask: (data: CreateTaskInput) => fetch(`${BASE}/tasks`, json('POST', data)).then((r) => handle<Task>(r)),

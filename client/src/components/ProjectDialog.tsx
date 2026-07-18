@@ -10,11 +10,14 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { CreateProjectInput, Project } from '@/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import type { CreateProjectInput, Member, Project } from '@/types';
 
 const PALETTE = ['#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#06b6d4', '#ef4444', '#8b5cf6', '#14b8a6'];
+const NO_MEMBER = '__none__';
 
 interface Props {
+  members: Member[];
   project?: Project;
   trigger?: ReactNode;
   open?: boolean;
@@ -23,19 +26,29 @@ interface Props {
   onDelete?: () => Promise<void>;
 }
 
-export function ProjectDialog({ project, trigger, open: controlledOpen, onOpenChange, onSubmit, onDelete }: Props) {
+export function ProjectDialog({
+  members,
+  project,
+  trigger,
+  open: controlledOpen,
+  onOpenChange,
+  onSubmit,
+  onDelete,
+}: Props) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
 
   const [name, setName] = useState(project?.name ?? '');
   const [color, setColor] = useState(project?.color ?? PALETTE[0]);
+  const [memberId, setMemberId] = useState(project?.member_id ?? NO_MEMBER);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
       setName(project?.name ?? '');
       setColor(project?.color ?? PALETTE[0]);
+      setMemberId(project?.member_id ?? NO_MEMBER);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -44,7 +57,7 @@ export function ProjectDialog({ project, trigger, open: controlledOpen, onOpenCh
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await onSubmit({ name: name.trim(), color });
+      await onSubmit({ name: name.trim(), color, member_id: memberId === NO_MEMBER ? '' : memberId });
       setOpen(false);
     } finally {
       setSaving(false);
@@ -79,6 +92,23 @@ export function ProjectDialog({ project, trigger, open: controlledOpen, onOpenCh
               placeholder="例: 新機能開発"
               onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label>デフォルト担当者(任意)</Label>
+            <Select value={memberId} onValueChange={setMemberId}>
+              <SelectTrigger>
+                <SelectValue placeholder="担当者なし" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_MEMBER}>担当者なし</SelectItem>
+                {members.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">タイムライン上でこのプロジェクトのタスクを追加する際の初期担当者になるにゃ</p>
           </div>
           <div className="grid gap-2">
             <Label>カラー</Label>

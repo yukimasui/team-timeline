@@ -1,4 +1,5 @@
 export type Status = 'todo' | 'in_progress' | 'done';
+export type Priority = 'high' | 'medium' | 'low';
 
 export interface Member {
   id: string;
@@ -11,6 +12,7 @@ export interface Project {
   id: string;
   name: string;
   color: string;
+  member_id: string | null;
   created_at: string;
 }
 
@@ -22,6 +24,13 @@ export interface Group {
   created_at: string;
 }
 
+export interface Timeline {
+  id: string;
+  name: string;
+  project_ids: string[];
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   project_id: string;
@@ -30,6 +39,7 @@ export interface Task {
   title: string;
   description: string;
   status: Status;
+  priority: Priority;
   start_date: string;
   end_date: string;
   node_x: number;
@@ -47,6 +57,8 @@ export interface CreateMemberInput {
 export interface CreateProjectInput {
   name: string;
   color?: string;
+  /** 空文字は「担当者なし」を表す */
+  member_id?: string;
 }
 
 export interface CreateGroupInput {
@@ -57,6 +69,13 @@ export interface CreateGroupInput {
 
 export type UpdateGroupInput = Partial<CreateGroupInput>;
 
+export interface CreateTimelineInput {
+  name: string;
+  project_ids: string[];
+}
+
+export type UpdateTimelineInput = Partial<CreateTimelineInput>;
+
 export interface CreateTaskInput {
   project_id: string;
   /** 空文字は「グループなし」を表す */
@@ -65,6 +84,7 @@ export interface CreateTaskInput {
   title: string;
   description?: string;
   status?: Status;
+  priority?: Priority;
   start_date: string;
   end_date: string;
   node_x?: number;

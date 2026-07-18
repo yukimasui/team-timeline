@@ -1,4 +1,4 @@
-import type { Group, Member, Project, Status } from './types';
+import type { Group, Member, Priority, Project, Status } from './types';
 
 export const STATUS_LABEL: Record<Status, string> = {
   todo: '未着手',
@@ -7,6 +7,14 @@ export const STATUS_LABEL: Record<Status, string> = {
 };
 
 export const STATUS_ORDER: Status[] = ['todo', 'in_progress', 'done'];
+
+export const PRIORITY_LABEL: Record<Priority, string> = {
+  high: '高',
+  medium: '中',
+  low: '低',
+};
+
+export const PRIORITY_ORDER: Priority[] = ['high', 'medium', 'low'];
 
 export function memberOf(members: Member[], id: string): Member | undefined {
   return members.find((m) => m.id === id);

@@ -6,7 +6,10 @@ use axum::{
 
 use crate::{
     error::AppError,
-    models::{AddDependency, CreateTask, Task, TaskDependency, TaskResponse, UpdateTask, VALID_STATUSES},
+    models::{
+        AddDependency, CreateTask, Task, TaskDependency, TaskResponse, UpdateTask, VALID_PRIORITIES,
+        VALID_STATUSES,
+    },
     AppState,
 };
 
@@ -35,6 +38,17 @@ fn validate_status(status: &str) -> Result<(), AppError> {
         Err(AppError::BadRequest(format!(
             "status must be one of {:?}",
             VALID_STATUSES
+        )))
+    }
+}
+
+fn validate_priority(priority: &str) -> Result<(), AppError> {
+    if VALID_PRIORITIES.contains(&priority) {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(format!(
+            "priority must be one of {:?}",
+            VALID_PRIORITIES
         )))
     }
 }
@@ -71,6 +85,8 @@ pub async fn create_task(
     }
     let status = payload.status.unwrap_or_else(|| "todo".to_string());
     validate_status(&status)?;
+    let priority = payload.priority.unwrap_or_else(|| "medium".to_string());
+    validate_priority(&priority)?;
 
     let id = uuid::Uuid::new_v4().to_string();
     let description = payload.description.unwrap_or_default();
@@ -80,8 +96,8 @@ pub async fn create_task(
     let group_id = payload.group_id.filter(|s| !s.is_empty());
 
     sqlx::query(
-        "INSERT INTO tasks (id, project_id, group_id, member_id, title, description, status, start_date, end_date, node_x, node_y)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (id, project_id, group_id, member_id, title, description, status, priority, start_date, end_date, node_x, node_y)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&payload.project_id)
@@ -90,6 +106,7 @@ pub async fn create_task(
     .bind(&payload.title)
     .bind(&description)
     .bind(&status)
+    .bind(&priority)
     .bind(&payload.start_date)
     .bind(&payload.end_date)
     .bind(node_x)
@@ -126,13 +143,15 @@ pub async fn update_task(
     let description = payload.description.unwrap_or(existing.description);
     let status = payload.status.unwrap_or(existing.status);
     validate_status(&status)?;
+    let priority = payload.priority.unwrap_or(existing.priority);
+    validate_priority(&priority)?;
     let start_date = payload.start_date.unwrap_or(existing.start_date);
     let end_date = payload.end_date.unwrap_or(existing.end_date);
     let node_x = payload.node_x.unwrap_or(existing.node_x);
     let node_y = payload.node_y.unwrap_or(existing.node_y);
 
     sqlx::query(
-        "UPDATE tasks SET project_id = ?, group_id = ?, member_id = ?, title = ?, description = ?, status = ?, start_date = ?, end_date = ?,
+        "UPDATE tasks SET project_id = ?, group_id = ?, member_id = ?, title = ?, description = ?, status = ?, priority = ?, start_date = ?, end_date = ?,
          node_x = ?, node_y = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .bind(&project_id)
@@ -141,6 +160,7 @@ pub async fn update_task(
     .bind(&title)
     .bind(&description)
     .bind(&status)
+    .bind(&priority)
     .bind(&start_date)
     .bind(&end_date)
     .bind(node_x)
