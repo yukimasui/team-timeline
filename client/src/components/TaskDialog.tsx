@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -18,15 +18,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { CreateTaskInput, Member, Status, Task, UpdateTaskInput } from '@/types';
+import type { CreateTaskInput, Group, Member, Project, Status, Task, UpdateTaskInput } from '@/types';
 import { STATUS_LABEL, STATUS_ORDER, todayStr } from '@/utils';
+
+const NO_GROUP = '__none__';
 
 interface Props {
   members: Member[];
+  projects: Project[];
+  groups: Group[];
   tasks: Task[];
   task?: Task;
   trigger?: ReactNode;
   defaultMemberId?: string;
+  defaultProjectId?: string;
+  defaultGroupId?: string;
   onSubmit: (data: CreateTaskInput | UpdateTaskInput, dependsOn: string[]) => Promise<void>;
   onDelete?: () => Promise<void>;
   open?: boolean;
@@ -35,10 +41,14 @@ interface Props {
 
 export function TaskDialog({
   members,
+  projects,
+  groups,
   tasks,
   task,
   trigger,
   defaultMemberId,
+  defaultProjectId,
+  defaultGroupId,
   onSubmit,
   onDelete,
   open: controlledOpen,
@@ -49,6 +59,8 @@ export function TaskDialog({
   const setOpen = onOpenChange ?? setInternalOpen;
   const [title, setTitle] = useState(task?.title ?? '');
   const [memberId, setMemberId] = useState(task?.member_id ?? defaultMemberId ?? members[0]?.id ?? '');
+  const [projectId, setProjectId] = useState(task?.project_id ?? defaultProjectId ?? projects[0]?.id ?? '');
+  const [groupId, setGroupId] = useState(task?.group_id ?? defaultGroupId ?? NO_GROUP);
   const [status, setStatus] = useState<Status>(task?.status ?? 'todo');
   const [startDate, setStartDate] = useState(task?.start_date ?? todayStr());
   const [endDate, setEndDate] = useState(task?.end_date ?? todayStr());
@@ -56,10 +68,14 @@ export function TaskDialog({
   const [dependsOn, setDependsOn] = useState<string[]>(task?.depends_on ?? []);
   const [saving, setSaving] = useState(false);
 
+  const groupsInProject = useMemo(() => groups.filter((g) => g.project_id === projectId), [groups, projectId]);
+
   useEffect(() => {
     if (open) {
       setTitle(task?.title ?? '');
       setMemberId(task?.member_id ?? defaultMemberId ?? members[0]?.id ?? '');
+      setProjectId(task?.project_id ?? defaultProjectId ?? projects[0]?.id ?? '');
+      setGroupId(task?.group_id ?? defaultGroupId ?? NO_GROUP);
       setStatus(task?.status ?? 'todo');
       setStartDate(task?.start_date ?? todayStr());
       setEndDate(task?.end_date ?? todayStr());
@@ -69,16 +85,23 @@ export function TaskDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  function handleProjectChange(nextProjectId: string) {
+    setProjectId(nextProjectId);
+    setGroupId(NO_GROUP);
+  }
+
   function toggleDep(id: string) {
     setDependsOn((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   async function handleSubmit() {
-    if (!title.trim() || !memberId) return;
+    if (!title.trim() || !memberId || !projectId) return;
     setSaving(true);
     try {
       await onSubmit(
         {
+          project_id: projectId,
+          group_id: groupId === NO_GROUP ? '' : groupId,
           member_id: memberId,
           title: title.trim(),
           description,
@@ -118,6 +141,40 @@ export function TaskDialog({
           <div className="grid gap-2">
             <Label htmlFor="task-title">タイトル</Label>
             <Input id="task-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 設計レビュー" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>プロジェクト</Label>
+              <Select value={projectId} onValueChange={handleProjectChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="プロジェクトを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>グループ(任意)</Label>
+              <Select value={groupId} onValueChange={setGroupId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="グループなし" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_GROUP}>グループなし</SelectItem>
+                  {groupsInProject.map((g) => (
+                    <SelectItem key={g.id} value={g.id}>
+                      {g.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -191,7 +248,7 @@ export function TaskDialog({
           ) : (
             <span />
           )}
-          <Button onClick={handleSubmit} disabled={!title.trim() || saving}>
+          <Button onClick={handleSubmit} disabled={!title.trim() || !projectId || saving}>
             {task ? '保存' : '追加'}
           </Button>
         </DialogFooter>

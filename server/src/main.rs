@@ -41,6 +41,22 @@ async fn main() -> anyhow::Result<()> {
             put(handlers::members::update_member).delete(handlers::members::delete_member),
         )
         .route(
+            "/projects",
+            get(handlers::projects::list_projects).post(handlers::projects::create_project),
+        )
+        .route(
+            "/projects/{id}",
+            put(handlers::projects::update_project).delete(handlers::projects::delete_project),
+        )
+        .route(
+            "/groups",
+            get(handlers::groups::list_groups).post(handlers::groups::create_group),
+        )
+        .route(
+            "/groups/{id}",
+            put(handlers::groups::update_group).delete(handlers::groups::delete_group),
+        )
+        .route(
             "/tasks",
             get(handlers::tasks::list_tasks).post(handlers::tasks::create_task),
         )

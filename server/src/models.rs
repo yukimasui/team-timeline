@@ -21,8 +21,53 @@ pub struct UpdateMember {
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProject {
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProject {
+    pub name: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct Group {
+    pub id: String,
+    pub project_id: String,
+    pub name: String,
+    pub color: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGroup {
+    pub project_id: String,
+    pub name: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateGroup {
+    pub project_id: Option<String>,
+    pub name: Option<String>,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Task {
     pub id: String,
+    pub project_id: String,
+    pub group_id: Option<String>,
     pub member_id: String,
     pub title: String,
     pub description: String,
@@ -44,6 +89,8 @@ pub struct TaskResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateTask {
+    pub project_id: String,
+    pub group_id: Option<String>,
     pub member_id: String,
     pub title: String,
     pub description: Option<String>,
@@ -57,6 +104,9 @@ pub struct CreateTask {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateTask {
+    pub project_id: Option<String>,
+    /// 空文字はグループなし(NULL)として扱う
+    pub group_id: Option<String>,
     pub member_id: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,

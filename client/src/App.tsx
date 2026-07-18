@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
-import type { CreateTaskInput, Member, Task, UpdateTaskInput } from './types';
+import type { CreateGroupInput, CreateProjectInput, CreateTaskInput, Group, Member, Project, Task, UpdateTaskInput } from './types';
 import { MemberDialog } from './components/MemberDialog';
+import { ProjectDialog } from './components/ProjectDialog';
+import { GroupDialog } from './components/GroupDialog';
 import { TaskDialog } from './components/TaskDialog';
 import { TimelineView } from './components/TimelineView';
 import { KanbanView } from './components/KanbanView';
@@ -19,15 +21,21 @@ const VIEWS: { key: ViewKey; label: string }[] = [
 
 function App() {
   const [members, setMembers] = useState<Member[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [view, setView] = useState<ViewKey>('timeline');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
   async function refresh() {
-    const [m, t] = await Promise.all([api.listMembers(), api.listTasks()]);
+    const [m, p, g, t] = await Promise.all([api.listMembers(), api.listProjects(), api.listGroups(), api.listTasks()]);
     setMembers(m);
+    setProjects(p);
+    setGroups(g);
     setTasks(t);
   }
 
@@ -48,6 +56,48 @@ function App() {
   async function handleCreateMember(name: string, color: string) {
     await withErrorHandling(async () => {
       await api.createMember({ name, color });
+      await refresh();
+    });
+  }
+
+  async function handleCreateProject(data: CreateProjectInput) {
+    await withErrorHandling(async () => {
+      await api.createProject(data);
+      await refresh();
+    });
+  }
+
+  async function handleUpdateProject(id: string, data: CreateProjectInput) {
+    await withErrorHandling(async () => {
+      await api.updateProject(id, data);
+      await refresh();
+    });
+  }
+
+  async function handleDeleteProject(id: string) {
+    await withErrorHandling(async () => {
+      await api.deleteProject(id);
+      await refresh();
+    });
+  }
+
+  async function handleCreateGroup(data: CreateGroupInput) {
+    await withErrorHandling(async () => {
+      await api.createGroup(data);
+      await refresh();
+    });
+  }
+
+  async function handleUpdateGroup(id: string, data: CreateGroupInput) {
+    await withErrorHandling(async () => {
+      await api.updateGroup(id, data);
+      await refresh();
+    });
+  }
+
+  async function handleDeleteGroup(id: string) {
+    await withErrorHandling(async () => {
+      await api.deleteGroup(id);
       await refresh();
     });
   }
@@ -104,6 +154,8 @@ function App() {
   }
 
   const editingTask = useMemo(() => tasks.find((t) => t.id === editingTaskId), [tasks, editingTaskId]);
+  const editingProject = useMemo(() => projects.find((p) => p.id === editingProjectId), [projects, editingProjectId]);
+  const editingGroup = useMemo(() => groups.find((g) => g.id === editingGroupId), [groups, editingGroupId]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -114,8 +166,19 @@ function App() {
         </div>
         <div className="flex items-center gap-2">
           <MemberDialog onCreate={handleCreateMember} />
+          <ProjectDialog
+            onSubmit={handleCreateProject}
+            trigger={<button type="button" className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">+ プロジェクト</button>}
+          />
+          <GroupDialog
+            projects={projects}
+            onSubmit={handleCreateGroup}
+            trigger={<button type="button" className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">+ グループ</button>}
+          />
           <TaskDialog
             members={members}
+            projects={projects}
+            groups={groups}
             tasks={tasks}
             onSubmit={(data, dependsOn) => handleCreateTask(data as CreateTaskInput, dependsOn)}
             trigger={<button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90">+ タスク</button>}
@@ -147,12 +210,16 @@ function App() {
         </div>
       )}
 
-      {members.length === 0 && !loading && (
+      {!loading && members.length === 0 && (
         <div className="mb-4 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
           まずは「+ メンバー」からチームメンバーを追加してほしいにゃ
         </div>
       )}
-
+      {!loading && projects.length === 0 && (
+        <div className="mb-4 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          「+ プロジェクト」からプロジェクトを追加してほしいにゃ
+        </div>
+      )}
       {loading ? (
         <p className="py-24 text-center text-muted-foreground">読み込み中...</p>
       ) : (
@@ -160,15 +227,21 @@ function App() {
           {view === 'timeline' && (
             <TimelineView
               members={members}
+              projects={projects}
+              groups={groups}
               tasks={tasks}
               onCreateTask={handleCreateTask}
               onUpdateTask={handleUpdateTask}
               onDeleteTask={handleDeleteTask}
+              onOpenProject={setEditingProjectId}
+              onOpenGroup={setEditingGroupId}
             />
           )}
           {view === 'kanban' && (
             <KanbanView
               members={members}
+              projects={projects}
+              groups={groups}
               tasks={tasks}
               onCreateTask={handleCreateTask}
               onUpdateTask={handleUpdateTask}
@@ -178,6 +251,8 @@ function App() {
           {view === 'table' && (
             <TableView
               members={members}
+              projects={projects}
+              groups={groups}
               tasks={tasks}
               onCreateTask={handleCreateTask}
               onUpdateTask={handleUpdateTask}
@@ -200,12 +275,35 @@ function App() {
       {editingTask && (
         <TaskDialog
           members={members}
+          projects={projects}
+          groups={groups}
           tasks={tasks}
           task={editingTask}
           open={Boolean(editingTaskId)}
           onOpenChange={(o) => !o && setEditingTaskId(null)}
           onSubmit={(data, dependsOn) => handleUpdateTask(editingTask.id, data, dependsOn)}
           onDelete={() => handleDeleteTask(editingTask.id)}
+        />
+      )}
+
+      {editingProject && (
+        <ProjectDialog
+          project={editingProject}
+          open={Boolean(editingProjectId)}
+          onOpenChange={(o) => !o && setEditingProjectId(null)}
+          onSubmit={(data) => handleUpdateProject(editingProject.id, data)}
+          onDelete={() => handleDeleteProject(editingProject.id)}
+        />
+      )}
+
+      {editingGroup && (
+        <GroupDialog
+          projects={projects}
+          group={editingGroup}
+          open={Boolean(editingGroupId)}
+          onOpenChange={(o) => !o && setEditingGroupId(null)}
+          onSubmit={(data) => handleUpdateGroup(editingGroup.id, data)}
+          onDelete={() => handleDeleteGroup(editingGroup.id)}
         />
       )}
     </div>

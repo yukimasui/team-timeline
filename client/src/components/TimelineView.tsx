@@ -1,60 +1,201 @@
-import type { CreateTaskInput, Member, Task, UpdateTaskInput } from '@/types';
+import type { CreateTaskInput, Group, Member, Project, Task, UpdateTaskInput } from '@/types';
 import { TaskDialog } from './TaskDialog';
-import { addDays, dayDiff, formatShort, STATUS_LABEL } from '@/utils';
+import { addDays, dayDiff, formatShort, memberOf, STATUS_LABEL } from '@/utils';
 
 interface Props {
   members: Member[];
+  projects: Project[];
+  groups: Group[];
   tasks: Task[];
   onCreateTask: (data: CreateTaskInput, dependsOn: string[]) => Promise<void>;
   onUpdateTask: (id: string, data: UpdateTaskInput, dependsOn: string[]) => Promise<void>;
   onDeleteTask: (id: string) => Promise<void>;
+  onOpenProject: (id: string) => void;
+  onOpenGroup: (id: string) => void;
 }
 
 const DAY_WIDTH = 32;
+const LABEL_WIDTH = 200;
+const BAR_HEIGHT = 24;
+const LANE_HEIGHT = 36;
+const BAR_INSET = (LANE_HEIGHT - BAR_HEIGHT) / 2;
+const BOX_PAD = 8;
 
-export function TimelineView({ members, tasks, onCreateTask, onUpdateTask, onDeleteTask }: Props) {
-  if (tasks.length === 0 || members.length === 0) {
+interface PosItem {
+  task: Task;
+  startOffset: number;
+  span: number;
+}
+
+interface Placed extends PosItem {
+  lane: number;
+}
+
+interface GroupBox {
+  groupId: string;
+  laneStart: number;
+  laneCount: number;
+  startOffset: number;
+  span: number;
+}
+
+function assignLanes(tasks: Task[], rangeStart: string): { placed: Placed[]; groupBoxes: GroupBox[]; laneCount: number } {
+  const withPos: PosItem[] = tasks.map((task) => {
+    const startOffset = dayDiff(rangeStart, task.start_date);
+    const span = Math.max(dayDiff(task.start_date, task.end_date) + 1, 1);
+    return { task, startOffset, span };
+  });
+
+  const occupied: [number, number][][] = [];
+  const isFree = (lane: number, s: number, e: number) => (occupied[lane] ?? []).every(([os, oe]) => e <= os || s >= oe);
+  const markOccupied = (lane: number, s: number, e: number) => {
+    (occupied[lane] ??= []).push([s, e]);
+  };
+  const findFreeBlock = (laneCount: number, s: number, e: number) => {
+    let lane = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let ok = true;
+      for (let i = 0; i < laneCount; i++) {
+        if (!isFree(lane + i, s, e)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return lane;
+      lane++;
+    }
+  };
+
+  const placed: Placed[] = [];
+  const groupBoxes: GroupBox[] = [];
+
+  const byGroup = new Map<string, PosItem[]>();
+  const ungrouped: PosItem[] = [];
+  for (const item of withPos) {
+    if (item.task.group_id) {
+      const arr = byGroup.get(item.task.group_id) ?? [];
+      arr.push(item);
+      byGroup.set(item.task.group_id, arr);
+    } else {
+      ungrouped.push(item);
+    }
+  }
+
+  const groupEntries = [...byGroup.entries()].sort(
+    (a, b) => Math.min(...a[1].map((i) => i.startOffset)) - Math.min(...b[1].map((i) => i.startOffset)),
+  );
+
+  for (const [groupId, items] of groupEntries) {
+    const sorted = [...items].sort((a, b) => a.startOffset - b.startOffset);
+    const laneEnds: number[] = [];
+    const relLane = new Map<PosItem, number>();
+    for (const item of sorted) {
+      const s = item.startOffset;
+      const e = item.startOffset + item.span;
+      let lane = laneEnds.findIndex((end) => end <= s);
+      if (lane === -1) {
+        lane = laneEnds.length;
+        laneEnds.push(e);
+      } else {
+        laneEnds[lane] = e;
+      }
+      relLane.set(item, lane);
+    }
+    const laneCount = laneEnds.length;
+    const groupStart = Math.min(...items.map((i) => i.startOffset));
+    const groupEnd = Math.max(...items.map((i) => i.startOffset + i.span));
+    const baseLane = findFreeBlock(laneCount, groupStart, groupEnd);
+
+    for (const item of sorted) {
+      placed.push({ ...item, lane: baseLane + (relLane.get(item) ?? 0) });
+    }
+    for (let i = 0; i < laneCount; i++) markOccupied(baseLane + i, groupStart, groupEnd);
+    groupBoxes.push({ groupId, laneStart: baseLane, laneCount, startOffset: groupStart, span: groupEnd - groupStart });
+  }
+
+  const sortedUngrouped = [...ungrouped].sort((a, b) => a.startOffset - b.startOffset);
+  for (const item of sortedUngrouped) {
+    const s = item.startOffset;
+    const e = item.startOffset + item.span;
+    const lane = findFreeBlock(1, s, e);
+    placed.push({ ...item, lane });
+    markOccupied(lane, s, e);
+  }
+
+  const laneCount = Math.max(1, ...placed.map((p) => p.lane + 1));
+  return { placed, groupBoxes, laneCount };
+}
+
+export function TimelineView({
+  members,
+  projects,
+  groups,
+  tasks,
+  onCreateTask,
+  onUpdateTask,
+  onDeleteTask,
+  onOpenProject,
+  onOpenGroup,
+}: Props) {
+  if (projects.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-24 text-muted-foreground">
-        <p>メンバーとタスクを追加するとタイムラインが表示されるにゃ</p>
+        <p>プロジェクト・タスクを追加するとタイムラインが表示されるにゃ</p>
       </div>
     );
   }
 
+  // 現状はタスクの有無にかかわらず2026年通年を基準表示にする(将来的に可変レンジ化する想定)
+  const YEAR_START = '2026-01-01';
+  const YEAR_END = '2027-01-01';
   const starts = tasks.map((t) => t.start_date);
   const ends = tasks.map((t) => t.end_date);
-  const rangeStart = starts.reduce((a, b) => (a < b ? a : b));
-  const rangeEndRaw = ends.reduce((a, b) => (a > b ? a : b));
-  const rangeEnd = addDays(rangeEndRaw, 1);
+  const rangeStart = starts.length > 0 ? [YEAR_START, ...starts].reduce((a, b) => (a < b ? a : b)) : YEAR_START;
+  const rangeEndRaw = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : YEAR_START;
+  const rangeEnd = [YEAR_END, addDays(rangeEndRaw, 1)].reduce((a, b) => (a > b ? a : b));
   const totalDays = Math.max(dayDiff(rangeStart, rangeEnd), 1);
-
   const days = Array.from({ length: totalDays }, (_, i) => addDays(rangeStart, i));
+  const gridWidth = totalDays * DAY_WIDTH;
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
-      <div style={{ width: 180 + totalDays * DAY_WIDTH }}>
-        {/* 日付ヘッダー */}
-        <div className="flex border-b bg-muted/40 text-xs text-muted-foreground">
-          <div className="w-[180px] shrink-0 border-r px-3 py-2 font-medium">メンバー</div>
-          <div className="flex">
+    <div className="overflow-auto rounded-lg border" style={{ maxHeight: '70vh' }}>
+      <div style={{ width: LABEL_WIDTH + gridWidth }}>
+        <div className="sticky top-0 z-20 flex border-b bg-background">
+          <div
+            className="sticky left-0 z-30 shrink-0 border-r bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground"
+            style={{ width: LABEL_WIDTH }}
+          >
+            プロジェクト
+          </div>
+          <div className="flex bg-muted/60">
             {days.map((d) => (
-              <div key={d} className="flex w-8 shrink-0 items-center justify-center border-r py-2 last:border-r-0">
+              <div key={d} className="flex w-8 shrink-0 items-center justify-center border-r py-2 text-xs text-muted-foreground last:border-r-0">
                 {formatShort(d)}
               </div>
             ))}
           </div>
         </div>
 
-        {/* メンバー行 */}
-        {members.map((m) => {
-          const memberTasks = tasks.filter((t) => t.member_id === m.id);
+        {projects.map((project) => {
+          const projectTasks = tasks.filter((t) => t.project_id === project.id);
+          const { placed, groupBoxes, laneCount } = assignLanes(projectTasks, rangeStart);
+          const hasGroups = groupBoxes.length > 0;
+          const topPad = hasGroups ? 26 : 8;
+          const rowHeight = topPad + laneCount * LANE_HEIGHT + (hasGroups ? BOX_PAD : 0) + 8;
+
           return (
-            <div key={m.id} className="flex border-b last:border-b-0">
-              <div className="flex w-[180px] shrink-0 items-center gap-2 border-r px-3 py-3">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: m.color }} />
-                <span className="truncate text-sm font-medium">{m.name}</span>
-              </div>
-              <div className="relative flex-1" style={{ minHeight: 48, width: totalDays * DAY_WIDTH }}>
+            <div key={project.id} className="flex border-b last:border-b-0">
+              <button
+                type="button"
+                onClick={() => onOpenProject(project.id)}
+                className="sticky left-0 z-10 flex shrink-0 items-start gap-2 border-r bg-background px-3 py-2 text-left text-sm font-semibold hover:bg-muted/30"
+                style={{ width: LABEL_WIDTH }}
+              >
+                <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: project.color }} />
+                <span className="truncate">{project.name}</span>
+              </button>
+              <div className="relative" style={{ width: gridWidth, height: rowHeight }}>
                 {days.map((d, i) => (
                   <div
                     key={d}
@@ -62,13 +203,48 @@ export function TimelineView({ members, tasks, onCreateTask, onUpdateTask, onDel
                     style={{ left: i * DAY_WIDTH, width: DAY_WIDTH }}
                   />
                 ))}
-                {memberTasks.map((t, rowIdx) => {
-                  const offset = dayDiff(rangeStart, t.start_date);
-                  const span = Math.max(dayDiff(t.start_date, t.end_date) + 1, 1);
+
+                {groupBoxes.map((box) => {
+                  const group = groups.find((g) => g.id === box.groupId);
+                  if (!group) return null;
+                  const left = box.startOffset * DAY_WIDTH - 6;
+                  const top = topPad + box.laneStart * LANE_HEIGHT + BAR_INSET - BOX_PAD;
+                  const width = box.span * DAY_WIDTH + 12;
+                  const height = (box.laneCount - 1) * LANE_HEIGHT + BAR_HEIGHT + BOX_PAD * 2;
+                  return (
+                    <div key={box.groupId}>
+                      <div
+                        className="absolute rounded-lg border-2"
+                        style={{
+                          left,
+                          top,
+                          width,
+                          height,
+                          borderColor: group.color,
+                          backgroundColor: `${group.color}1a`,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onOpenGroup(group.id)}
+                        className="absolute z-[5] truncate rounded px-1.5 text-[10px] font-medium text-white shadow-sm hover:opacity-90"
+                        style={{ left, top: top - 14, maxWidth: width, backgroundColor: group.color }}
+                      >
+                        {group.name}
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {placed.map(({ task: t, lane, startOffset, span }) => {
+                  const member = memberOf(members, t.member_id);
+                  const group = t.group_id ? groups.find((g) => g.id === t.group_id) : undefined;
                   return (
                     <TaskDialog
                       key={t.id}
                       members={members}
+                      projects={projects}
+                      groups={groups}
                       tasks={tasks}
                       task={t}
                       onSubmit={(data, dependsOn) => onUpdateTask(t.id, data, dependsOn)}
@@ -76,16 +252,16 @@ export function TimelineView({ members, tasks, onCreateTask, onUpdateTask, onDel
                       trigger={
                         <button
                           type="button"
-                          className="absolute flex items-center overflow-hidden rounded-md px-2 text-left text-xs text-white shadow-sm transition-opacity hover:opacity-90"
+                          className="absolute z-10 flex items-center overflow-hidden rounded-md px-2 text-left text-xs text-white shadow-sm transition-opacity hover:opacity-90"
                           style={{
-                            left: offset * DAY_WIDTH + 2,
+                            left: startOffset * DAY_WIDTH + 2,
                             width: span * DAY_WIDTH - 4,
-                            top: 6 + rowIdx * 28,
-                            height: 24,
-                            backgroundColor: m.color,
+                            top: topPad + lane * LANE_HEIGHT + BAR_INSET,
+                            height: BAR_HEIGHT,
+                            backgroundColor: member?.color ?? '#6366f1',
                             opacity: t.status === 'done' ? 0.5 : 1,
                           }}
-                          title={`${t.title}(${STATUS_LABEL[t.status]})`}
+                          title={`${t.title}${group ? ` / ${group.name}` : ''}(${STATUS_LABEL[t.status]}・${member?.name ?? ''})`}
                         >
                           <span className="truncate">{t.title}</span>
                         </button>
@@ -93,15 +269,16 @@ export function TimelineView({ members, tasks, onCreateTask, onUpdateTask, onDel
                     />
                   );
                 })}
-                <div style={{ height: Math.max(memberTasks.length, 1) * 28 + 12 }} />
               </div>
             </div>
           );
         })}
       </div>
-      <div className="border-t p-2">
+      <div className="border-t bg-background p-2">
         <TaskDialog
           members={members}
+          projects={projects}
+          groups={groups}
           tasks={tasks}
           onSubmit={(data, dependsOn) => onCreateTask(data as CreateTaskInput, dependsOn)}
           trigger={

@@ -76,12 +76,16 @@ pub async fn create_task(
     let description = payload.description.unwrap_or_default();
     let node_x = payload.node_x.unwrap_or(0.0);
     let node_y = payload.node_y.unwrap_or(0.0);
+    // 空文字は「グループなし」として扱う(グループは任意所属)
+    let group_id = payload.group_id.filter(|s| !s.is_empty());
 
     sqlx::query(
-        "INSERT INTO tasks (id, member_id, title, description, status, start_date, end_date, node_x, node_y)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (id, project_id, group_id, member_id, title, description, status, start_date, end_date, node_x, node_y)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
+    .bind(&payload.project_id)
+    .bind(&group_id)
     .bind(&payload.member_id)
     .bind(&payload.title)
     .bind(&description)
@@ -113,6 +117,10 @@ pub async fn update_task(
 ) -> Result<Json<TaskResponse>, AppError> {
     let existing = fetch_task(&state, &id).await?;
 
+    let project_id = payload.project_id.unwrap_or(existing.project_id);
+    // フロントは常にgroup_idキーを送る(未所属は空文字)ので、そのままNoneへ正規化する
+    let group_id = payload.group_id.unwrap_or_default();
+    let group_id = if group_id.is_empty() { None } else { Some(group_id) };
     let member_id = payload.member_id.unwrap_or(existing.member_id);
     let title = payload.title.unwrap_or(existing.title);
     let description = payload.description.unwrap_or(existing.description);
@@ -124,9 +132,11 @@ pub async fn update_task(
     let node_y = payload.node_y.unwrap_or(existing.node_y);
 
     sqlx::query(
-        "UPDATE tasks SET member_id = ?, title = ?, description = ?, status = ?, start_date = ?, end_date = ?,
+        "UPDATE tasks SET project_id = ?, group_id = ?, member_id = ?, title = ?, description = ?, status = ?, start_date = ?, end_date = ?,
          node_x = ?, node_y = ?, updated_at = datetime('now') WHERE id = ?",
     )
+    .bind(&project_id)
+    .bind(&group_id)
     .bind(&member_id)
     .bind(&title)
     .bind(&description)

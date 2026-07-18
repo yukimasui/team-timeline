@@ -1,17 +1,19 @@
 import { useState } from 'react';
-import type { CreateTaskInput, Member, Status, Task, UpdateTaskInput } from '@/types';
+import type { CreateTaskInput, Group, Member, Project, Status, Task, UpdateTaskInput } from '@/types';
 import { TaskDialog } from './TaskDialog';
 import { memberOf, STATUS_LABEL, STATUS_ORDER } from '@/utils';
 
 interface Props {
   members: Member[];
+  projects: Project[];
+  groups: Group[];
   tasks: Task[];
   onCreateTask: (data: CreateTaskInput, dependsOn: string[]) => Promise<void>;
   onUpdateTask: (id: string, data: UpdateTaskInput, dependsOn: string[]) => Promise<void>;
   onDeleteTask: (id: string) => Promise<void>;
 }
 
-export function KanbanView({ members, tasks, onCreateTask, onUpdateTask, onDeleteTask }: Props) {
+export function KanbanView({ members, projects, groups, tasks, onCreateTask, onUpdateTask, onDeleteTask }: Props) {
   const [dragOverStatus, setDragOverStatus] = useState<Status | null>(null);
 
   async function handleDrop(status: Status, e: React.DragEvent) {
@@ -51,6 +53,8 @@ export function KanbanView({ members, tasks, onCreateTask, onUpdateTask, onDelet
                 <TaskDialog
                   key={t.id}
                   members={members}
+                  projects={projects}
+                  groups={groups}
                   tasks={tasks}
                   task={t}
                   onSubmit={(data, dependsOn) => onUpdateTask(t.id, data, dependsOn)}
@@ -79,6 +83,8 @@ export function KanbanView({ members, tasks, onCreateTask, onUpdateTask, onDelet
 
             <TaskDialog
               members={members}
+              projects={projects}
+              groups={groups}
               tasks={tasks}
               onSubmit={(data, dependsOn) =>
                 onCreateTask({ ...(data as CreateTaskInput), status }, dependsOn)

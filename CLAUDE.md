@@ -43,14 +43,20 @@ docker-compose.yml      SQLite用ボリューム付きの単一サービス構�
 
 ## データモデル
 
-- `members`: id(uuid), name, color, created_at
-- `tasks`: id(uuid), member_id(FK), title, description, status(todo/in_progress/done), start_date, end_date, node_x, node_y(グラフ上の座標), created_at, updated_at
+- `members`: id(uuid), name, color, created_at — タスクの担当者
+- `projects`: id(uuid), name, color, created_at — タイムラインの行の単位
+- `groups`: id(uuid), project_id(FK), name, color, created_at — プロジェクト内でタスクを後から束ねる任意の集合(PowerPointの要素グループ化に近い)。1グループは1プロジェクトに属する
+- `tasks`: id(uuid), project_id(FK, 必須), group_id(FK, 任意/NULL可), member_id(FK), title, description, status(todo/in_progress/done), start_date, end_date, node_x, node_y(グラフ上の座標), created_at, updated_at
+  - タスクはプロジェクトに直接所属(必須)。グループへの所属は任意で、グループなしのタスクも存在できる
+  - グループを削除してもタスクは消えない(`group_id`がNULLに戻るだけ。`ON DELETE SET NULL`)
 - `task_dependencies`: task_id, depends_on_task_id の複合主キー。「task_idはdepends_on_task_idの完了に依存する」というエッジ。ON DELETE CASCADEでタスク削除時に自動でエッジも消える。
 
 ## API
 
 - `GET/POST /api/members`, `PUT/DELETE /api/members/{id}`
-- `GET/POST /api/tasks`, `PUT/DELETE /api/tasks/{id}` — GETのレスポンスは各タスクに `depends_on: string[]` を含む(`task_dependencies` を集約したもの)
+- `GET/POST /api/projects`, `PUT/DELETE /api/projects/{id}`
+- `GET/POST /api/groups`, `PUT/DELETE /api/groups/{id}`
+- `GET/POST /api/tasks`, `PUT/DELETE /api/tasks/{id}` — GETのレスポンスは各タスクに `depends_on: string[]` を含む(`task_dependencies` を集約したもの)。`group_id` は空文字を送るとグループ解除(NULL)として扱われる
 - `POST /api/tasks/{id}/dependencies` body `{ depends_on_task_id }` — 依存エッジ追加
 - `DELETE /api/tasks/{task_id}/dependencies/{depends_on_task_id}` — 依存エッジ削除
 
@@ -76,12 +82,16 @@ docker compose up --build -d
 # 使われている環境でも衝突しないようにするため。変えたい場合は HOST_PORT=xxxx で上書きできる。
 ```
 
+一区切りの作業(Issue対応など)が完了したら、`docker compose up --build -d` でローカルのDocker環境も最新のコードに更新・再起動しておく。ローカルの実行中コンテナがコードと乖離したままにならないようにするため。
+
 ## 規約・注意点
 
 - フロントのimportパスエイリアスは `@/*` → `client/src/*`(tsconfig + vite.config.ts両方に設定済み)。
 - 新しいUI部品はまず `npx shadcn@latest add <component>` で追加してから使う。素のCSSを書くより既存のプリミティブ + Tailwindユーティリティを優先する。
 - `TaskDialog` はトリガーボタンから開く通常パターンと、`open`/`onOpenChange` を渡す外部制御パターンの両方に対応している(依存関係グラフでノードをダブルクリックして編集する導線で後者を使用)。新しいダイアログもこの形に揃える。
 - SQLiteのマイグレーションは `server/migrations/*.sql` に追加し、`sqlx::migrate!("./migrations")` で起動時に自動適用される(`db.rs`)。マイグレーションファイルはコンパイル時にバイナリへ埋め込まれるため、Dockerの実行用ステージにmigrationsディレクトリをコピーする必要はない。
+  - **一度適用されたマイグレーションファイルの中身は変更しない。** sqlxはファイルごとにチェックサムを記録しており、適用済みのファイルを書き換えて再起動すると `migration N was previously applied but has been modified` で起動不能になる(実際に開発中のDockerボリュームで発生した)。スキーマを直したい場合は新しい番号のマイグレーションファイルを追加する。ローカル/Dockerのdata volumeしか汚れていない場合は `rm -rf server/data`(ローカル)や `docker compose down -v`(Docker)でボリュームごと作り直しても良い。
+- タイムラインの日付範囲は現状「2026年通年+実タスクの範囲」を表示する固定仕様(`TimelineView.tsx`の`YEAR_START`/`YEAR_END`)。可変レンジ化は将来対応。
 - 依存関係グラフのノード位置(`node_x`, `node_y`)はドラッグ終了時にAPIへPUTして永続化する。初期値(0, 0)のタスクは自動グリッド配置にフォールバックする(`GraphView.tsx`)。
 - git運用: `main`を汚さないよう`develop`ブランチで作業し、区切りの良いところでPRにまとめる。
 - **commit / push / PR作成など、リポジトリの状態や履歴を変える操作は必ず事前にユーザーに確認を取り、了承を得てから実行する。** 了承なしに勝手に実行しない。

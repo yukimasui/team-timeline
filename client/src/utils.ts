@@ -1,4 +1,4 @@
-import type { Member, Status } from './types';
+import type { Group, Member, Project, Status } from './types';
 
 export const STATUS_LABEL: Record<Status, string> = {
   todo: '未着手',
@@ -10,6 +10,14 @@ export const STATUS_ORDER: Status[] = ['todo', 'in_progress', 'done'];
 
 export function memberOf(members: Member[], id: string): Member | undefined {
   return members.find((m) => m.id === id);
+}
+
+export function projectOf(projects: Project[], id: string): Project | undefined {
+  return projects.find((p) => p.id === id);
+}
+
+export function groupOf(groups: Group[], id: string): Group | undefined {
+  return groups.find((g) => g.id === id);
 }
 
 export function dayDiff(a: string, b: string): number {
