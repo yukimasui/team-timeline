@@ -211,7 +211,9 @@ function TimelineCanvas({
         const task = visibleTasks.find((t) => t.id === item.id);
         const marker = task ? undefined : visibleMarkers.find((m) => m.id === item.id);
         const x = item.startOffset * DAY_WIDTH;
-        const defaultY = band.yStart + band.topPad + item.lane * LANE_HEIGHT + BAR_INSET;
+        // node_yはバンド絶対座標ではなく、band.yStartからの相対オフセットとして保持する
+        // (プロジェクトの行高さ変更でband.yStartが動いても、バンド内の相対位置がずれないようにするため)
+        const defaultOffset = band.topPad + item.lane * LANE_HEIGHT + BAR_INSET;
         // X方向は[x, x]のような幅ゼロの範囲にすると、ReactFlowがノード幅を考慮してクランプする際に
         // 実際の描画位置がノード幅ぶん左にずれてしまう(グループ枠は正しいxで計算するため、そこでズレが可視化される)。
         // そのためX方向はextentで制限せず、onNodeDragで毎フレームxを固定値に戻す方式にする。
@@ -222,7 +224,7 @@ function TimelineCanvas({
         if (task) {
           const width = Math.max(item.span * DAY_WIDTH - 4, 8);
           const member = memberOf(members, task.member_id);
-          const y = task.node_y !== 0 ? task.node_y : defaultY;
+          const y = band.yStart + (task.node_y !== 0 ? task.node_y : defaultOffset);
           next.push({
             id: task.id,
             type: 'taskBar',
@@ -239,7 +241,7 @@ function TimelineCanvas({
             } satisfies TaskBarNodeData,
           });
         } else if (marker) {
-          const y = marker.node_y !== 0 ? marker.node_y : defaultY;
+          const y = band.yStart + (marker.node_y !== 0 ? marker.node_y : defaultOffset);
           if (marker.item_type === 'note') {
             next.push({
               id: marker.id,
@@ -315,6 +317,17 @@ function TimelineCanvas({
     return map;
   }, [bands]);
 
+  // 各アイテムが属するバンド(node_yをband.yStart基準の相対オフセットとして永続化するために使う)
+  const bandById = useMemo(() => {
+    const map = new Map<string, ProjectBand>();
+    for (const band of bands) {
+      for (const item of band.placed) {
+        map.set(item.id, band);
+      }
+    }
+    return map;
+  }, [bands]);
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target || connection.source === connection.target) return;
@@ -335,14 +348,15 @@ function TimelineCanvas({
   const onNodeDragStop = useCallback<OnNodeDrag<Node<TimelineNodeData>>>(
     (_event, node) => {
       const fixedX = fixedXById.get(node.id) ?? node.position.x;
-      const y = Math.round(node.position.y);
+      const band = bandById.get(node.id);
+      const y = Math.round(node.position.y) - (band?.yStart ?? 0);
       if (node.type === 'taskBar') {
         void onMoveTaskNode(node.id, Math.round(fixedX), y);
       } else {
         void onMoveMarkerNode(node.id, y);
       }
     },
-    [fixedXById, onMoveTaskNode, onMoveMarkerNode],
+    [fixedXById, bandById, onMoveTaskNode, onMoveMarkerNode],
   );
 
   const onEdgesDelete = useCallback(

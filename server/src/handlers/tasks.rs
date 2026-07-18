@@ -135,9 +135,12 @@ pub async fn update_task(
     let existing = fetch_task(&state, &id).await?;
 
     let project_id = payload.project_id.unwrap_or(existing.project_id);
-    // フロントは常にgroup_idキーを送る(未所属は空文字)ので、そのままNoneへ正規化する
-    let group_id = payload.group_id.unwrap_or_default();
-    let group_id = if group_id.is_empty() { None } else { Some(group_id) };
+    // キー省略時は既存値を維持、空文字は明示的な「グループ解除」として扱う
+    let group_id = match payload.group_id {
+        None => existing.group_id,
+        Some(s) if s.is_empty() => None,
+        Some(s) => Some(s),
+    };
     let member_id = payload.member_id.unwrap_or(existing.member_id);
     let title = payload.title.unwrap_or(existing.title);
     let description = payload.description.unwrap_or(existing.description);
