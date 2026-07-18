@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { CreateTaskInput, CreateTimelineInput, Group, Member, Project, Task, Timeline, UpdateTaskInput } from '@/types';
 import { TaskDialog } from './TaskDialog';
-import { TimelineDialog } from './TimelineDialog';
+import { TimelineTabs } from './TimelineTabs';
 import { addDays, dayDiff, memberOf, todayStr } from '@/utils';
 
 interface Props {
@@ -218,54 +218,18 @@ export function TimelineView({
     setClickAdd({ projectId, date: addDays(rangeStart, dayIndex) });
   }
 
-  const tabClass = (isActive: boolean) =>
-    `shrink-0 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-      isActive ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
-    }`;
-
   return (
     <div className="overflow-hidden rounded-lg border">
       <div className="flex items-center justify-between gap-2 border-b px-2 py-1.5">
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-md bg-muted/30 p-1">
-          <button type="button" onClick={() => setActiveTimelineId(null)} className={tabClass(!activeTimeline)}>
-            全体
-          </button>
-          {timelines.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setActiveTimelineId(t.id)}
-              className={tabClass(activeTimeline?.id === t.id)}
-            >
-              {t.name}
-            </button>
-          ))}
-          <TimelineDialog
-            projects={projects}
-            onSubmit={onCreateTimeline}
-            trigger={
-              <button type="button" className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">
-                +
-              </button>
-            }
-          />
-          {activeTimeline && (
-            <TimelineDialog
-              projects={projects}
-              timeline={activeTimeline}
-              onSubmit={(data) => onUpdateTimeline(activeTimeline.id, data)}
-              onDelete={async () => {
-                await onDeleteTimeline(activeTimeline.id);
-                setActiveTimelineId(null);
-              }}
-              trigger={
-                <button type="button" className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground">
-                  編集
-                </button>
-              }
-            />
-          )}
-        </div>
+        <TimelineTabs
+          projects={projects}
+          timelines={timelines}
+          activeTimelineId={activeTimelineId}
+          onSelect={setActiveTimelineId}
+          onCreateTimeline={onCreateTimeline}
+          onUpdateTimeline={onUpdateTimeline}
+          onDeleteTimeline={onDeleteTimeline}
+        />
         <Button type="button" variant="outline" size="sm" onClick={jumpToToday} disabled={!todayInRange} className="shrink-0">
           今日
         </Button>

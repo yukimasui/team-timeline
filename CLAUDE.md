@@ -23,9 +23,10 @@ client/               React + TS + Vite フロントエンド
       MemberDialog.tsx    メンバー追加ダイアログ
       TaskDialog.tsx      タスク追加/編集ダイアログ(open/onOpenChangeで外部制御も可)
       TimelineView.tsx    ガント風タイムライン(CSS Gridで自前実装、DAY_WIDTH=32px)
+      TimelineTabs.tsx    タイムライン/グラフ共通のタブバー(timelinesでプロジェクトを絞り込む)
       KanbanView.tsx      ステータス別カンバン(HTML5 native drag & drop)
       TableView.tsx       一覧テーブル
-      GraphView.tsx       依存関係グラフ(React Flow)
+      GraphView.tsx       依存関係グラフ(React Flow)。X座標はタスクのstart_dateから機械的に計算し横ドラッグ不可、縦のみ自由
       TaskNode.tsx        グラフのカスタムノード
 server/                Rust + Axum バックエンド
   src/
@@ -101,8 +102,8 @@ API_BASE="http://localhost:8123" python3 scripts/seed.py  # ポートを変え�
 - タイムラインの日付ヘッダは年/月/日の3段組み(`groupConsecutive`で連続する日付を年・月単位にまとめてセル幅を決めている)。土曜は青、日曜は赤で色分け。
 - タイムラインのタスクバーの色はステータスで切り替える(`barStyle()`関数): 未着手=担当者カラーを半透明、進行中=担当者カラー原色、完了=枠線が担当者カラーで内側は視認性重視の濃いめグレー(`#9ca3af`)固定。
 - タイムラインの空いている場所をクリックするとその日を開始日・終了日にしたタスク追加ダイアログが開く(`handleRowClick`)。クリック判定は`(e.target as HTMLElement).closest('button')`でタスクバー等のボタン要素上のクリックを除外している。
-- タイムラインのタブ(`timelines`)はプロジェクトの表示絞り込みに使う。「全体」タブはDBに存在しない特別なUI状態(`activeTimelineId === null`)。
-- 依存関係グラフのノード位置(`node_x`, `node_y`)はドラッグ終了時にAPIへPUTして永続化する。初期値(0, 0)のタスクは自動グリッド配置にフォールバックする(`GraphView.tsx`)。
+- タイムラインのタブ(`timelines`)はプロジェクトの表示絞り込みに使う。「全体」タブはDBに存在しない特別なUI状態(`activeTimelineId === null`)。タブバーは`TimelineTabs.tsx`としてTimelineView/GraphViewで共有しているが、タブの選択状態(`activeTimelineId`)自体は各ビューがローカルstateで独立して持つ(意図的な設計。ビューを切り替えても互いのタブ選択に影響しない)。
+- 依存関係グラフのノードは横方向(X)がタスクの`start_date`から機械的に計算され、`extent`でドラッグをロックしている(横には動かせない)。縦方向(Y)のみ自由にドラッグでき、`onNodeDragStop`でAPIへPUTして`node_y`を永続化する(`node_x`もPUTはされるが表示上は常にstart_dateから再計算されるため無視される)。初期値(0)のタスクはインデックスベースの自動配置にフォールバックする。背景の日付ルーラーは`useViewport()`でパン量を取得し画面座標に変換して描画している(`GraphView.tsx`の`DateAxis`)。
 - git運用: `main`を汚さないよう`develop`ブランチで作業し、区切りの良いところでPRにまとめる。
 - **commit / push / PR作成など、リポジトリの状態や履歴を変える操作は必ず事前にユーザーに確認を取り、了承を得てから実行する。** 了承なしに勝手に実行しない。
 - Issueに取り組んだときは、

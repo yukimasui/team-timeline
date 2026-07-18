@@ -307,11 +307,16 @@ function App() {
           {view === 'graph' && (
             <GraphView
               members={members}
+              projects={projects}
               tasks={tasks}
+              timelines={timelines}
               onAddDependency={handleAddDependency}
               onRemoveDependency={handleRemoveDependency}
               onMoveNode={handleMoveNode}
               onOpenTask={setEditingTaskId}
+              onCreateTimeline={handleCreateTimeline}
+              onUpdateTimeline={handleUpdateTimeline}
+              onDeleteTimeline={handleDeleteTimeline}
             />
           )}
         </main>
