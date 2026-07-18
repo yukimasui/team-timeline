@@ -1,6 +1,8 @@
+import { useRef } from 'react';
+import { Button } from '@/components/ui/button';
 import type { CreateTaskInput, Group, Member, Project, Task, UpdateTaskInput } from '@/types';
 import { TaskDialog } from './TaskDialog';
-import { addDays, dayDiff, formatShort, memberOf, STATUS_LABEL } from '@/utils';
+import { addDays, dayDiff, formatShort, memberOf, STATUS_LABEL, todayStr } from '@/utils';
 
 interface Props {
   members: Member[];
@@ -138,6 +140,8 @@ export function TimelineView({
   onOpenProject,
   onOpenGroup,
 }: Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   if (projects.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-24 text-muted-foreground">
@@ -158,135 +162,168 @@ export function TimelineView({
   const days = Array.from({ length: totalDays }, (_, i) => addDays(rangeStart, i));
   const gridWidth = totalDays * DAY_WIDTH;
 
+  const today = todayStr();
+  const todayOffset = dayDiff(rangeStart, today);
+  const todayInRange = todayOffset >= 0 && todayOffset < totalDays;
+
+  function jumpToToday() {
+    const el = scrollRef.current;
+    if (!el || !todayInRange) return;
+    el.scrollLeft = Math.max(0, todayOffset * DAY_WIDTH - el.clientWidth / 2 + LABEL_WIDTH / 2 + DAY_WIDTH / 2);
+  }
+
   return (
-    <div className="overflow-auto rounded-lg border" style={{ maxHeight: '70vh' }}>
-      <div style={{ width: LABEL_WIDTH + gridWidth }}>
-        <div className="sticky top-0 z-20 flex border-b bg-background">
-          <div
-            className="sticky left-0 z-30 shrink-0 border-r bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground"
-            style={{ width: LABEL_WIDTH }}
-          >
-            プロジェクト
+    <div className="overflow-hidden rounded-lg border">
+      <div className="flex items-center justify-end border-b px-2 py-1.5">
+        <Button type="button" variant="outline" size="sm" onClick={jumpToToday} disabled={!todayInRange}>
+          今日
+        </Button>
+      </div>
+      <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: '70vh' }}>
+        <div style={{ width: LABEL_WIDTH + gridWidth }}>
+          <div className="sticky top-0 z-30 flex border-b bg-background">
+            <div
+              className="sticky left-0 z-40 shrink-0 border-r bg-muted px-3 py-2 text-xs font-medium text-muted-foreground"
+              style={{ width: LABEL_WIDTH }}
+            >
+              プロジェクト
+            </div>
+            <div className="relative flex bg-muted">
+              {todayInRange && (
+                <div
+                  className="absolute top-0 h-full bg-amber-400/20"
+                  style={{ left: todayOffset * DAY_WIDTH, width: DAY_WIDTH }}
+                />
+              )}
+              {days.map((d) => (
+                <div
+                  key={d}
+                  className={`flex w-8 shrink-0 items-center justify-center border-r py-2 text-xs last:border-r-0 ${
+                    d === today ? 'font-semibold text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  {formatShort(d)}
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex bg-muted/60">
-            {days.map((d) => (
-              <div key={d} className="flex w-8 shrink-0 items-center justify-center border-r py-2 text-xs text-muted-foreground last:border-r-0">
-                {formatShort(d)}
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {projects.map((project) => {
-          const projectTasks = tasks.filter((t) => t.project_id === project.id);
-          const { placed, groupBoxes, laneCount } = assignLanes(projectTasks, rangeStart);
-          const hasGroups = groupBoxes.length > 0;
-          const topPad = hasGroups ? 26 : 8;
-          const rowHeight = topPad + laneCount * LANE_HEIGHT + (hasGroups ? BOX_PAD : 0) + 8;
+          {projects.map((project) => {
+            const projectTasks = tasks.filter((t) => t.project_id === project.id);
+            const { placed, groupBoxes, laneCount } = assignLanes(projectTasks, rangeStart);
+            const hasGroups = groupBoxes.length > 0;
+            const topPad = hasGroups ? 26 : 8;
+            const rowHeight = topPad + laneCount * LANE_HEIGHT + (hasGroups ? BOX_PAD : 0) + 8;
 
-          return (
-            <div key={project.id} className="flex border-b last:border-b-0">
-              <button
-                type="button"
-                onClick={() => onOpenProject(project.id)}
-                className="sticky left-0 z-10 flex shrink-0 items-start gap-2 border-r bg-background px-3 py-2 text-left text-sm font-semibold hover:bg-muted/30"
-                style={{ width: LABEL_WIDTH }}
-              >
-                <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: project.color }} />
-                <span className="truncate">{project.name}</span>
-              </button>
-              <div className="relative" style={{ width: gridWidth, height: rowHeight }}>
-                {days.map((d, i) => (
+            return (
+              <div key={project.id} className="flex border-b last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => onOpenProject(project.id)}
+                  className="sticky left-0 z-20 flex shrink-0 items-start gap-2 border-r bg-background px-3 py-2 text-left text-sm font-semibold hover:bg-muted"
+                  style={{ width: LABEL_WIDTH }}
+                >
+                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: project.color }} />
+                  <span className="truncate">{project.name}</span>
+                </button>
+                <div className="relative" style={{ width: gridWidth, height: rowHeight }}>
                   <div
-                    key={d}
-                    className="absolute top-0 h-full border-r border-border/50"
-                    style={{ left: i * DAY_WIDTH, width: DAY_WIDTH }}
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${DAY_WIDTH - 1}px, var(--border) ${DAY_WIDTH - 1}px, var(--border) ${DAY_WIDTH}px)`,
+                    }}
                   />
-                ))}
+                  {todayInRange && (
+                    <div
+                      className="absolute top-0 h-full bg-amber-400/10"
+                      style={{ left: todayOffset * DAY_WIDTH, width: DAY_WIDTH }}
+                    />
+                  )}
 
-                {groupBoxes.map((box) => {
-                  const group = groups.find((g) => g.id === box.groupId);
-                  if (!group) return null;
-                  const left = box.startOffset * DAY_WIDTH - 6;
-                  const top = topPad + box.laneStart * LANE_HEIGHT + BAR_INSET - BOX_PAD;
-                  const width = box.span * DAY_WIDTH + 12;
-                  const height = (box.laneCount - 1) * LANE_HEIGHT + BAR_HEIGHT + BOX_PAD * 2;
-                  return (
-                    <div key={box.groupId}>
-                      <div
-                        className="absolute rounded-lg border-2"
-                        style={{
-                          left,
-                          top,
-                          width,
-                          height,
-                          borderColor: group.color,
-                          backgroundColor: `${group.color}1a`,
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => onOpenGroup(group.id)}
-                        className="absolute z-[5] truncate rounded px-1.5 text-[10px] font-medium text-white shadow-sm hover:opacity-90"
-                        style={{ left, top: top - 14, maxWidth: width, backgroundColor: group.color }}
-                      >
-                        {group.name}
-                      </button>
-                    </div>
-                  );
-                })}
-
-                {placed.map(({ task: t, lane, startOffset, span }) => {
-                  const member = memberOf(members, t.member_id);
-                  const group = t.group_id ? groups.find((g) => g.id === t.group_id) : undefined;
-                  return (
-                    <TaskDialog
-                      key={t.id}
-                      members={members}
-                      projects={projects}
-                      groups={groups}
-                      tasks={tasks}
-                      task={t}
-                      onSubmit={(data, dependsOn) => onUpdateTask(t.id, data, dependsOn)}
-                      onDelete={() => onDeleteTask(t.id)}
-                      trigger={
+                  {groupBoxes.map((box) => {
+                    const group = groups.find((g) => g.id === box.groupId);
+                    if (!group) return null;
+                    const left = box.startOffset * DAY_WIDTH - 6;
+                    const top = topPad + box.laneStart * LANE_HEIGHT + BAR_INSET - BOX_PAD;
+                    const width = box.span * DAY_WIDTH + 12;
+                    const height = (box.laneCount - 1) * LANE_HEIGHT + BAR_HEIGHT + BOX_PAD * 2;
+                    return (
+                      <div key={box.groupId}>
+                        <div
+                          className="absolute z-[2] rounded-lg border-2"
+                          style={{
+                            left,
+                            top,
+                            width,
+                            height,
+                            borderColor: group.color,
+                            backgroundColor: `${group.color}1a`,
+                          }}
+                        />
                         <button
                           type="button"
-                          className="absolute z-10 flex items-center overflow-hidden rounded-md px-2 text-left text-xs text-white shadow-sm transition-opacity hover:opacity-90"
-                          style={{
-                            left: startOffset * DAY_WIDTH + 2,
-                            width: span * DAY_WIDTH - 4,
-                            top: topPad + lane * LANE_HEIGHT + BAR_INSET,
-                            height: BAR_HEIGHT,
-                            backgroundColor: member?.color ?? '#6366f1',
-                            opacity: t.status === 'done' ? 0.5 : 1,
-                          }}
-                          title={`${t.title}${group ? ` / ${group.name}` : ''}(${STATUS_LABEL[t.status]}・${member?.name ?? ''})`}
+                          onClick={() => onOpenGroup(group.id)}
+                          className="absolute z-[3] truncate rounded px-1.5 text-[10px] font-medium text-white shadow-sm hover:opacity-90"
+                          style={{ left, top: top - 14, maxWidth: width, backgroundColor: group.color }}
                         >
-                          <span className="truncate">{t.title}</span>
+                          {group.name}
                         </button>
-                      }
-                    />
-                  );
-                })}
+                      </div>
+                    );
+                  })}
+
+                  {placed.map(({ task: t, lane, startOffset, span }) => {
+                    const member = memberOf(members, t.member_id);
+                    const group = t.group_id ? groups.find((g) => g.id === t.group_id) : undefined;
+                    return (
+                      <TaskDialog
+                        key={t.id}
+                        members={members}
+                        projects={projects}
+                        groups={groups}
+                        tasks={tasks}
+                        task={t}
+                        onSubmit={(data, dependsOn) => onUpdateTask(t.id, data, dependsOn)}
+                        onDelete={() => onDeleteTask(t.id)}
+                        trigger={
+                          <button
+                            type="button"
+                            className="absolute z-10 flex items-center overflow-hidden rounded-md px-2 text-left text-xs text-white shadow-sm transition-opacity hover:opacity-90"
+                            style={{
+                              left: startOffset * DAY_WIDTH + 2,
+                              width: span * DAY_WIDTH - 4,
+                              top: topPad + lane * LANE_HEIGHT + BAR_INSET,
+                              height: BAR_HEIGHT,
+                              backgroundColor: member?.color ?? '#6366f1',
+                              opacity: t.status === 'done' ? 0.5 : 1,
+                            }}
+                            title={`${t.title}${group ? ` / ${group.name}` : ''}(${STATUS_LABEL[t.status]}・${member?.name ?? ''})`}
+                          >
+                            <span className="truncate">{t.title}</span>
+                          </button>
+                        }
+                      />
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="border-t bg-background p-2">
-        <TaskDialog
-          members={members}
-          projects={projects}
-          groups={groups}
-          tasks={tasks}
-          onSubmit={(data, dependsOn) => onCreateTask(data as CreateTaskInput, dependsOn)}
-          trigger={
-            <button type="button" className="text-sm text-muted-foreground hover:text-foreground">
-              + タスクを追加
-            </button>
-          }
-        />
+            );
+          })}
+        </div>
+        <div className="border-t bg-background p-2" style={{ width: LABEL_WIDTH + gridWidth }}>
+          <TaskDialog
+            members={members}
+            projects={projects}
+            groups={groups}
+            tasks={tasks}
+            onSubmit={(data, dependsOn) => onCreateTask(data as CreateTaskInput, dependsOn)}
+            trigger={
+              <button type="button" className="text-sm text-muted-foreground hover:text-foreground">
+                + タスクを追加
+              </button>
+            }
+          />
+        </div>
       </div>
     </div>
   );
