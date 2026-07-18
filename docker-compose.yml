@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${HOST_PORT:-8090}:8080"
+    volumes:
+      - team-timeline-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  team-timeline-data:
