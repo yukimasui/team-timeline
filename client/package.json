@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
+    "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.3",
     "@xyflow/react": "^12.11.2",
     "class-variance-authority": "^0.7.1",
@@ -19,6 +20,8 @@
     "radix-ui": "^1.6.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.13.1",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.3",

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { MemoField } from '@/components/MemoField';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { CreateMarkerInput, Marker, MarkerType, Project, UpdateMarkerInput } from '@/types';
 import { todayStr } from '@/utils';
@@ -106,11 +106,12 @@ export function EventDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{marker ? `${ITEM_TYPE_LABEL[itemType]}を編集` : 'イベント/メモを追加'}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
+        <div className="grid flex-1 grid-cols-1 gap-4 py-2 sm:grid-cols-[1fr_320px]">
+        <div className="grid gap-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label>種別</Label>
@@ -151,7 +152,7 @@ export function EventDialog({
             />
           </div>
 
-          {itemType === 'event' ? (
+          {itemType === 'event' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="marker-start">開始日</Label>
@@ -166,11 +167,6 @@ export function EventDialog({
                 <Label htmlFor="marker-end">終了日</Label>
                 <Input id="marker-end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              <Label htmlFor="marker-date">日付</Label>
-              <Input id="marker-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
           )}
 
@@ -194,10 +190,8 @@ export function EventDialog({
             </div>
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="marker-desc">メモ</Label>
-            <Textarea id="marker-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
-          </div>
+        </div>
+        <MemoField id="marker-desc" value={description} onChange={setDescription} />
         </div>
         <DialogFooter className="gap-2 sm:justify-between">
           {marker && onDelete ? (

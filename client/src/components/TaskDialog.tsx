@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { MemoField } from '@/components/MemoField';
 import {
   Select,
   SelectContent,
@@ -158,11 +158,12 @@ export function TaskDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{task ? 'タスクを編集' : 'タスクを追加'}</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-4 py-2">
+        <div className="grid flex-1 grid-cols-1 gap-4 py-2 sm:grid-cols-[1fr_320px]">
+        <div className="grid gap-4">
           <div className="grid gap-2">
             <Label htmlFor="task-title">タイトル</Label>
             <Input id="task-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例: 設計レビュー" />
@@ -262,11 +263,6 @@ export function TaskDialog({
             </Select>
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="task-desc">メモ</Label>
-            <Textarea id="task-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
-          </div>
-
           {otherTasks.length > 0 && (
             <div className="grid gap-2">
               <Label>依存先タスク(先に終わらせる必要があるタスク)</Label>
@@ -280,6 +276,8 @@ export function TaskDialog({
               </div>
             </div>
           )}
+        </div>
+        <MemoField id="task-desc" value={description} onChange={setDescription} />
         </div>
         <DialogFooter className="gap-2 sm:justify-between">
           {task && onDelete ? (
