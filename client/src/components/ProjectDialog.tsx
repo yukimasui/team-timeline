@@ -42,6 +42,7 @@ export function ProjectDialog({
   const [name, setName] = useState(project?.name ?? '');
   const [color, setColor] = useState(project?.color ?? PALETTE[0]);
   const [memberId, setMemberId] = useState(project?.member_id ?? NO_MEMBER);
+  const [rowHeight, setRowHeight] = useState(project?.row_height ? String(project.row_height) : '');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export function ProjectDialog({
       setName(project?.name ?? '');
       setColor(project?.color ?? PALETTE[0]);
       setMemberId(project?.member_id ?? NO_MEMBER);
+      setRowHeight(project?.row_height ? String(project.row_height) : '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -57,7 +59,13 @@ export function ProjectDialog({
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await onSubmit({ name: name.trim(), color, member_id: memberId === NO_MEMBER ? '' : memberId });
+      const parsedHeight = parseInt(rowHeight, 10);
+      await onSubmit({
+        name: name.trim(),
+        color,
+        member_id: memberId === NO_MEMBER ? '' : memberId,
+        row_height: Number.isFinite(parsedHeight) && parsedHeight > 0 ? parsedHeight : 0,
+      });
       setOpen(false);
     } finally {
       setSaving(false);
@@ -109,6 +117,18 @@ export function ProjectDialog({
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">タイムライン上でこのプロジェクトのタスクを追加する際の初期担当者になるにゃ</p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="project-row-height">タイムラインの行の高さ(px)</Label>
+            <Input
+              id="project-row-height"
+              type="number"
+              min={0}
+              value={rowHeight}
+              onChange={(e) => setRowHeight(e.target.value)}
+              placeholder="自動"
+            />
+            <p className="text-xs text-muted-foreground">空欄(自動)にするとタスク数に応じて高さが決まるにゃ</p>
           </div>
           <div className="grid gap-2">
             <Label>カラー</Label>

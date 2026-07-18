@@ -14,6 +14,8 @@ export interface Project {
   color: string;
   member_id: string | null;
   created_at: string;
+  /** タイムライン上の行の高さ(px)。0は未設定(タスク数に応じて自動計算) */
+  row_height: number;
 }
 
 export interface Group {
@@ -59,6 +61,8 @@ export interface CreateProjectInput {
   color?: string;
   /** 空文字は「担当者なし」を表す */
   member_id?: string;
+  /** 0(または未指定)はタスク数に応じた自動計算を表す */
+  row_height?: number;
 }
 
 export interface CreateGroupInput {
@@ -93,3 +97,34 @@ export interface CreateTaskInput {
 }
 
 export type UpdateTaskInput = Partial<Omit<CreateTaskInput, 'depends_on'>>;
+
+export type MarkerType = 'event' | 'note';
+
+export interface Marker {
+  id: string;
+  project_id: string;
+  item_type: MarkerType;
+  title: string;
+  description: string;
+  color: string;
+  start_date: string;
+  /** ノートはnull(単一日)。イベントは常に値を持つ */
+  end_date: string | null;
+  node_y: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMarkerInput {
+  project_id: string;
+  item_type: MarkerType;
+  title: string;
+  description?: string;
+  color?: string;
+  start_date: string;
+  /** 空文字は「終了日なし(ノート)」を表す */
+  end_date?: string;
+  node_y?: number;
+}
+
+export type UpdateMarkerInput = Partial<CreateMarkerInput>;

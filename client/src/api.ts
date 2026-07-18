@@ -1,15 +1,18 @@
 import type {
   CreateGroupInput,
+  CreateMarkerInput,
   CreateMemberInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateTimelineInput,
   Group,
+  Marker,
   Member,
   Project,
   Task,
   Timeline,
   UpdateGroupInput,
+  UpdateMarkerInput,
   UpdateTaskInput,
   UpdateTimelineInput,
 } from './types';
@@ -66,6 +69,13 @@ export const api = {
   updateTask: (id: string, data: UpdateTaskInput) =>
     fetch(`${BASE}/tasks/${id}`, json('PUT', data)).then((r) => handle<Task>(r)),
   deleteTask: (id: string) => fetch(`${BASE}/tasks/${id}`, json('DELETE')).then((r) => handle<void>(r)),
+
+  listMarkers: () => fetch(`${BASE}/markers`).then((r) => handle<Marker[]>(r)),
+  createMarker: (data: CreateMarkerInput) =>
+    fetch(`${BASE}/markers`, json('POST', data)).then((r) => handle<Marker>(r)),
+  updateMarker: (id: string, data: UpdateMarkerInput) =>
+    fetch(`${BASE}/markers/${id}`, json('PUT', data)).then((r) => handle<Marker>(r)),
+  deleteMarker: (id: string) => fetch(`${BASE}/markers/${id}`, json('DELETE')).then((r) => handle<void>(r)),
 
   addDependency: (taskId: string, dependsOnTaskId: string) =>
     fetch(`${BASE}/tasks/${taskId}/dependencies`, json('POST', { depends_on_task_id: dependsOnTaskId })).then((r) =>

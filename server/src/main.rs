@@ -57,6 +57,14 @@ async fn main() -> anyhow::Result<()> {
             put(handlers::groups::update_group).delete(handlers::groups::delete_group),
         )
         .route(
+            "/markers",
+            get(handlers::markers::list_markers).post(handlers::markers::create_marker),
+        )
+        .route(
+            "/markers/{id}",
+            put(handlers::markers::update_marker).delete(handlers::markers::delete_marker),
+        )
+        .route(
             "/timelines",
             get(handlers::timelines::list_timelines).post(handlers::timelines::create_timeline),
         )

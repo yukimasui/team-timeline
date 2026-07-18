@@ -1,221 +1,416 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Background,
+  BackgroundVariant,
+  MarkerType as RFMarkerType,
+  ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
+  type Connection,
+  type CoordinateExtent,
+  type Edge,
+  type Node,
+  type NodeMouseHandler,
+  type OnNodeDrag,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
-import type { CreateTaskInput, CreateTimelineInput, Group, Member, Project, Task, Timeline, UpdateTaskInput } from '@/types';
+import type {
+  CreateMarkerInput,
+  CreateTaskInput,
+  CreateTimelineInput,
+  Group,
+  Marker,
+  MarkerType,
+  Member,
+  Project,
+  Task,
+  Timeline,
+} from '@/types';
 import { TaskDialog } from './TaskDialog';
+import { EventDialog } from './EventDialog';
 import { TimelineTabs } from './TimelineTabs';
 import { addDays, dayDiff, memberOf, todayStr } from '@/utils';
+import { assignLanes, type LayoutItem } from '@/lib/ganttLayout';
+import {
+  BAR_HEIGHT,
+  BAR_INSET,
+  BOX_PAD,
+  DAY_WIDTH,
+  LABEL_WIDTH,
+  LANE_HEIGHT,
+  MIN_ROW_HEIGHT,
+  NOTE_SIZE,
+} from './timeline/constants';
+import { groupConsecutiveWithOffset } from './timeline/timelineVisuals';
+import type { ProjectBand } from './timeline/types';
+import { TaskBarNode, type TaskBarNodeData } from './timeline/TaskBarNode';
+import { TimelineEventNode, type TimelineEventNodeData } from './timeline/TimelineEventNode';
+import { TimelineNoteNode, type TimelineNoteNodeData } from './timeline/TimelineNoteNode';
+import { TimelineDateHeader } from './timeline/TimelineDateHeader';
+import { ProjectLabelColumn } from './timeline/ProjectLabelColumn';
+import { ProjectBandBackground } from './timeline/ProjectBandBackground';
+import { GroupBoxOverlay, type GroupBoxTaskNode } from './timeline/GroupBoxOverlay';
+import { TodayHighlight } from './timeline/TodayHighlight';
+import { AddItemPopover } from './timeline/AddItemPopover';
+
+const nodeTypes = { taskBar: TaskBarNode, event: TimelineEventNode, note: TimelineNoteNode };
+
+type TimelineNodeData = TaskBarNodeData | TimelineEventNodeData | TimelineNoteNodeData;
 
 interface Props {
   members: Member[];
   projects: Project[];
   groups: Group[];
   tasks: Task[];
+  markers: Marker[];
   timelines: Timeline[];
   onCreateTask: (data: CreateTaskInput, dependsOn: string[]) => Promise<void>;
-  onUpdateTask: (id: string, data: UpdateTaskInput, dependsOn: string[]) => Promise<void>;
-  onDeleteTask: (id: string) => Promise<void>;
+  onMoveTaskNode: (taskId: string, x: number, y: number) => Promise<void>;
+  onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
+  onRemoveDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
+  onCreateMarker: (data: CreateMarkerInput) => Promise<void>;
+  onMoveMarkerNode: (markerId: string, y: number) => Promise<void>;
   onCreateTimeline: (data: CreateTimelineInput) => Promise<void>;
   onUpdateTimeline: (id: string, data: CreateTimelineInput) => Promise<void>;
   onDeleteTimeline: (id: string) => Promise<void>;
   onOpenProject: (id: string) => void;
   onOpenGroup: (id: string) => void;
+  onOpenTask: (id: string) => void;
+  onOpenMarker: (id: string) => void;
+  onResizeProject: (id: string, height: number) => Promise<void>;
 }
 
-const DAY_WIDTH = 32;
-const LABEL_WIDTH = 200;
-const BAR_HEIGHT = 24;
-const LANE_HEIGHT = 36;
-const BAR_INSET = (LANE_HEIGHT - BAR_HEIGHT) / 2;
-const BOX_PAD = 8;
+const YEAR_START = '2026-01-01';
+const YEAR_END = '2027-01-01';
 
-interface PosItem {
-  task: Task;
-  startOffset: number;
-  span: number;
-}
-
-interface Placed extends PosItem {
-  lane: number;
-}
-
-interface GroupBox {
-  groupId: string;
-  laneStart: number;
-  laneCount: number;
-  startOffset: number;
-  span: number;
-}
-
-function assignLanes(tasks: Task[], rangeStart: string): { placed: Placed[]; groupBoxes: GroupBox[]; laneCount: number } {
-  const withPos: PosItem[] = tasks.map((task) => {
-    const startOffset = dayDiff(rangeStart, task.start_date);
-    const span = Math.max(dayDiff(task.start_date, task.end_date) + 1, 1);
-    return { task, startOffset, span };
-  });
-
-  const occupied: [number, number][][] = [];
-  const isFree = (lane: number, s: number, e: number) => (occupied[lane] ?? []).every(([os, oe]) => e <= os || s >= oe);
-  const markOccupied = (lane: number, s: number, e: number) => {
-    (occupied[lane] ??= []).push([s, e]);
-  };
-  const findFreeBlock = (laneCount: number, s: number, e: number) => {
-    let lane = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      let ok = true;
-      for (let i = 0; i < laneCount; i++) {
-        if (!isFree(lane + i, s, e)) {
-          ok = false;
-          break;
-        }
-      }
-      if (ok) return lane;
-      lane++;
-    }
-  };
-
-  const placed: Placed[] = [];
-  const groupBoxes: GroupBox[] = [];
-
-  const byGroup = new Map<string, PosItem[]>();
-  const ungrouped: PosItem[] = [];
-  for (const item of withPos) {
-    if (item.task.group_id) {
-      const arr = byGroup.get(item.task.group_id) ?? [];
-      arr.push(item);
-      byGroup.set(item.task.group_id, arr);
-    } else {
-      ungrouped.push(item);
-    }
-  }
-
-  const groupEntries = [...byGroup.entries()].sort(
-    (a, b) => Math.min(...a[1].map((i) => i.startOffset)) - Math.min(...b[1].map((i) => i.startOffset)),
+export function TimelineView(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <TimelineCanvas {...props} />
+    </ReactFlowProvider>
   );
-
-  for (const [groupId, items] of groupEntries) {
-    const sorted = [...items].sort((a, b) => a.startOffset - b.startOffset);
-    const laneEnds: number[] = [];
-    const relLane = new Map<PosItem, number>();
-    for (const item of sorted) {
-      const s = item.startOffset;
-      const e = item.startOffset + item.span;
-      let lane = laneEnds.findIndex((end) => end <= s);
-      if (lane === -1) {
-        lane = laneEnds.length;
-        laneEnds.push(e);
-      } else {
-        laneEnds[lane] = e;
-      }
-      relLane.set(item, lane);
-    }
-    const laneCount = laneEnds.length;
-    const groupStart = Math.min(...items.map((i) => i.startOffset));
-    const groupEnd = Math.max(...items.map((i) => i.startOffset + i.span));
-    const baseLane = findFreeBlock(laneCount, groupStart, groupEnd);
-
-    for (const item of sorted) {
-      placed.push({ ...item, lane: baseLane + (relLane.get(item) ?? 0) });
-    }
-    for (let i = 0; i < laneCount; i++) markOccupied(baseLane + i, groupStart, groupEnd);
-    groupBoxes.push({ groupId, laneStart: baseLane, laneCount, startOffset: groupStart, span: groupEnd - groupStart });
-  }
-
-  const sortedUngrouped = [...ungrouped].sort((a, b) => a.startOffset - b.startOffset);
-  for (const item of sortedUngrouped) {
-    const s = item.startOffset;
-    const e = item.startOffset + item.span;
-    const lane = findFreeBlock(1, s, e);
-    placed.push({ ...item, lane });
-    markOccupied(lane, s, e);
-  }
-
-  const laneCount = Math.max(1, ...placed.map((p) => p.lane + 1));
-  return { placed, groupBoxes, laneCount };
 }
 
-function groupConsecutive(days: string[], keyFn: (d: string) => string): { key: string; count: number }[] {
-  const result: { key: string; count: number }[] = [];
-  for (const d of days) {
-    const key = keyFn(d);
-    const last = result[result.length - 1];
-    if (last && last.key === key) {
-      last.count++;
-    } else {
-      result.push({ key, count: 1 });
-    }
-  }
-  return result;
-}
-
-function dayColorClass(d: string): string {
-  const dow = new Date(d).getDay();
-  if (dow === 0) return 'text-red-500';
-  if (dow === 6) return 'text-blue-500';
-  return 'text-muted-foreground';
-}
-
-function barStyle(status: Task['status'], color: string): React.CSSProperties {
-  if (status === 'done') {
-    return { backgroundColor: '#9ca3af', border: `2px solid ${color}`, color: '#1f2937' };
-  }
-  if (status === 'todo') {
-    return { backgroundColor: color, opacity: 0.55, color: 'white' };
-  }
-  return { backgroundColor: color, color: 'white' };
-}
-
-export function TimelineView({
+function TimelineCanvas({
   members,
   projects,
   groups,
   tasks,
+  markers,
   timelines,
   onCreateTask,
-  onUpdateTask,
-  onDeleteTask,
+  onMoveTaskNode,
+  onAddDependency,
+  onRemoveDependency,
+  onCreateMarker,
+  onMoveMarkerNode,
   onCreateTimeline,
   onUpdateTimeline,
   onDeleteTimeline,
   onOpenProject,
   onOpenGroup,
+  onOpenTask,
+  onOpenMarker,
+  onResizeProject,
 }: Props) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [activeTimelineId, setActiveTimelineId] = useState<string | null>(null);
-  const [clickAdd, setClickAdd] = useState<{ projectId: string; date: string } | null>(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node<TimelineNodeData>>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [addPopover, setAddPopover] = useState<{
+    clientX: number;
+    clientY: number;
+    projectId: string;
+    date: string;
+  } | null>(null);
+  const [pendingAdd, setPendingAdd] = useState<{ kind: 'task' | 'event' | 'note'; projectId: string; date: string } | null>(
+    null,
+  );
+  const [resizing, setResizing] = useState<{ projectId: string; height: number } | null>(null);
+  const { screenToFlowPosition, setViewport } = useReactFlow();
 
   const activeTimeline = timelines.find((t) => t.id === activeTimelineId);
-  const visibleProjects = activeTimeline ? projects.filter((p) => activeTimeline.project_ids.includes(p.id)) : projects;
+  const visibleProjects = useMemo(
+    () => (activeTimeline ? projects.filter((p) => activeTimeline.project_ids.includes(p.id)) : projects),
+    [activeTimeline, projects],
+  );
+  const visibleProjectIds = useMemo(() => new Set(visibleProjects.map((p) => p.id)), [visibleProjects]);
+  const visibleTasks = useMemo(() => tasks.filter((t) => visibleProjectIds.has(t.project_id)), [tasks, visibleProjectIds]);
+  const visibleMarkers = useMemo(
+    () => markers.filter((m) => visibleProjectIds.has(m.project_id)),
+    [markers, visibleProjectIds],
+  );
 
   // 現状はタスクの有無にかかわらず2026年通年を基準表示にする(将来的に可変レンジ化する想定)
-  const YEAR_START = '2026-01-01';
-  const YEAR_END = '2027-01-01';
-  const starts = tasks.map((t) => t.start_date);
-  const ends = tasks.map((t) => t.end_date);
+  const starts = [...visibleTasks.map((t) => t.start_date), ...visibleMarkers.map((m) => m.start_date)];
+  const ends = [...visibleTasks.map((t) => t.end_date), ...visibleMarkers.map((m) => m.end_date ?? m.start_date)];
   const rangeStart = starts.length > 0 ? [YEAR_START, ...starts].reduce((a, b) => (a < b ? a : b)) : YEAR_START;
   const rangeEndRaw = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : YEAR_START;
   const rangeEnd = [YEAR_END, addDays(rangeEndRaw, 1)].reduce((a, b) => (a > b ? a : b));
   const totalDays = Math.max(dayDiff(rangeStart, rangeEnd), 1);
   const days = useMemo(() => Array.from({ length: totalDays }, (_, i) => addDays(rangeStart, i)), [totalDays, rangeStart]);
-  const gridWidth = totalDays * DAY_WIDTH;
-  const yearGroups = useMemo(() => groupConsecutive(days, (d) => d.slice(0, 4)), [days]);
-  const monthGroups = useMemo(() => groupConsecutive(days, (d) => d.slice(0, 7)), [days]);
+  const yearGroups = useMemo(() => groupConsecutiveWithOffset(days, (d) => d.slice(0, 4)), [days]);
+  const monthGroups = useMemo(() => groupConsecutiveWithOffset(days, (d) => d.slice(0, 7)), [days]);
 
   const today = todayStr();
   const todayOffset = dayDiff(rangeStart, today);
   const todayInRange = todayOffset >= 0 && todayOffset < totalDays;
 
-  function jumpToToday() {
-    const el = scrollRef.current;
-    if (!el || !todayInRange) return;
-    el.scrollLeft = Math.max(0, todayOffset * DAY_WIDTH - el.clientWidth / 2 + LABEL_WIDTH / 2 + DAY_WIDTH / 2);
+  const bands = useMemo<ProjectBand[]>(() => {
+    let cursorY = 0;
+    return visibleProjects.map((project) => {
+      const projectTasks = visibleTasks.filter((t) => t.project_id === project.id);
+      const projectMarkers = visibleMarkers.filter((m) => m.project_id === project.id);
+      const items: LayoutItem[] = [
+        ...projectTasks.map((t) => ({
+          id: t.id,
+          groupId: t.group_id,
+          startOffset: dayDiff(rangeStart, t.start_date),
+          span: Math.max(dayDiff(t.start_date, t.end_date) + 1, 1),
+        })),
+        ...projectMarkers.map((m) => ({
+          id: m.id,
+          groupId: null,
+          startOffset: dayDiff(rangeStart, m.start_date),
+          span: m.end_date ? Math.max(dayDiff(m.start_date, m.end_date) + 1, 1) : 1,
+        })),
+      ];
+      const { placed, groupBoxes, laneCount } = assignLanes(items);
+      const hasGroups = groupBoxes.length > 0;
+      const topPad = hasGroups ? 26 : 8;
+      const minHeight = topPad + LANE_HEIGHT + 8;
+      const autoHeight = Math.max(topPad + laneCount * LANE_HEIGHT + (hasGroups ? BOX_PAD : 0) + 8, MIN_ROW_HEIGHT);
+      // ドラッグでリサイズ中はその場の高さを最優先。それ以外はrow_height(ユーザー指定、念のため1レーン分は下限)、
+      // 未指定(0)ならレーン数に応じた自動計算にフォールバックする
+      const rowHeight =
+        resizing && resizing.projectId === project.id
+          ? Math.max(resizing.height, minHeight)
+          : project.row_height > 0
+            ? Math.max(project.row_height, minHeight)
+            : autoHeight;
+      const yStart = cursorY;
+      const yEnd = cursorY + rowHeight;
+      cursorY = yEnd;
+      return { projectId: project.id, yStart, yEnd, topPad, placed, laneCount };
+    });
+  }, [visibleProjects, visibleTasks, visibleMarkers, rangeStart, resizing]);
+
+  // ReactFlow自体の縦方向パンは使わない(縦は外側の通常スクロールに任せる)。
+  // ReactFlowのコンテナ自体をtotalHeightぴったりの高さにするので、縦にパンできる余地自体が生まれない。
+  const EXTENT_PAD = 400;
+  const gridWidth = totalDays * DAY_WIDTH;
+  const totalHeight = bands.length > 0 ? bands[bands.length - 1].yEnd : MIN_ROW_HEIGHT;
+
+  useEffect(() => {
+    const next: Node<TimelineNodeData>[] = [];
+    for (const band of bands) {
+      for (const item of band.placed) {
+        const task = visibleTasks.find((t) => t.id === item.id);
+        const marker = task ? undefined : visibleMarkers.find((m) => m.id === item.id);
+        const x = item.startOffset * DAY_WIDTH;
+        const defaultY = band.yStart + band.topPad + item.lane * LANE_HEIGHT + BAR_INSET;
+        // X方向は[x, x]のような幅ゼロの範囲にすると、ReactFlowがノード幅を考慮してクランプする際に
+        // 実際の描画位置がノード幅ぶん左にずれてしまう(グループ枠は正しいxで計算するため、そこでズレが可視化される)。
+        // そのためX方向はextentで制限せず、onNodeDragで毎フレームxを固定値に戻す方式にする。
+        const extent: CoordinateExtent = [
+          [Number.NEGATIVE_INFINITY, band.yStart],
+          [Number.POSITIVE_INFINITY, band.yEnd - BAR_HEIGHT],
+        ];
+        if (task) {
+          const width = Math.max(item.span * DAY_WIDTH - 4, 8);
+          const member = memberOf(members, task.member_id);
+          const y = task.node_y !== 0 ? task.node_y : defaultY;
+          next.push({
+            id: task.id,
+            type: 'taskBar',
+            position: { x, y },
+            width,
+            height: BAR_HEIGHT,
+            style: { width, height: BAR_HEIGHT },
+            extent,
+            data: {
+              title: task.title,
+              status: task.status,
+              color: member?.color ?? '#6366f1',
+              groupId: task.group_id,
+            } satisfies TaskBarNodeData,
+          });
+        } else if (marker) {
+          const y = marker.node_y !== 0 ? marker.node_y : defaultY;
+          if (marker.item_type === 'note') {
+            next.push({
+              id: marker.id,
+              type: 'note',
+              position: { x, y },
+              width: NOTE_SIZE,
+              height: NOTE_SIZE,
+              style: { width: NOTE_SIZE, height: NOTE_SIZE },
+              extent,
+              data: { title: marker.title, color: marker.color } satisfies TimelineNoteNodeData,
+            });
+          } else {
+            const width = Math.max(item.span * DAY_WIDTH - 4, 8);
+            next.push({
+              id: marker.id,
+              type: 'event',
+              position: { x, y },
+              width,
+              height: BAR_HEIGHT,
+              style: { width, height: BAR_HEIGHT },
+              extent,
+              data: { title: marker.title, color: marker.color } satisfies TimelineEventNodeData,
+            });
+          }
+        }
+      }
+    }
+    setNodes(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bands, visibleTasks, visibleMarkers, members, setNodes]);
+
+  useEffect(() => {
+    const visibleIds = new Set(visibleTasks.map((t) => t.id));
+    const next: Edge[] = [];
+    for (const t of visibleTasks) {
+      for (const depId of t.depends_on) {
+        if (!visibleIds.has(depId)) continue;
+        next.push({
+          id: `${depId}->${t.id}`,
+          source: depId,
+          target: t.id,
+          markerEnd: { type: RFMarkerType.ArrowClosed },
+          animated: t.status !== 'done',
+        });
+      }
+    }
+    setEdges(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleTasks, setEdges]);
+
+  const taskNodesForBoxes = useMemo<GroupBoxTaskNode[]>(
+    () =>
+      nodes
+        .filter((n) => n.type === 'taskBar')
+        .map((n) => ({
+          id: n.id,
+          groupId: (n.data as TaskBarNodeData).groupId,
+          x: n.position.x,
+          y: n.position.y,
+          width: n.width ?? 0,
+        })),
+    [nodes],
+  );
+
+  // 各アイテムの本来のX(日付から機械的に決まる、固定値)。onNodeDragで毎フレームこの値に戻す
+  const fixedXById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const band of bands) {
+      for (const item of band.placed) {
+        map.set(item.id, item.startOffset * DAY_WIDTH);
+      }
+    }
+    return map;
+  }, [bands]);
+
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.target || connection.source === connection.target) return;
+      void onAddDependency(connection.target, connection.source);
+    },
+    [onAddDependency],
+  );
+
+  const onNodeDrag = useCallback<OnNodeDrag<Node<TimelineNodeData>>>(
+    (_event, node) => {
+      const fixedX = fixedXById.get(node.id);
+      if (fixedX === undefined || node.position.x === fixedX) return;
+      setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: { x: fixedX, y: n.position.y } } : n)));
+    },
+    [fixedXById, setNodes],
+  );
+
+  const onNodeDragStop = useCallback<OnNodeDrag<Node<TimelineNodeData>>>(
+    (_event, node) => {
+      const fixedX = fixedXById.get(node.id) ?? node.position.x;
+      const y = Math.round(node.position.y);
+      if (node.type === 'taskBar') {
+        void onMoveTaskNode(node.id, Math.round(fixedX), y);
+      } else {
+        void onMoveMarkerNode(node.id, y);
+      }
+    },
+    [fixedXById, onMoveTaskNode, onMoveMarkerNode],
+  );
+
+  const onEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      for (const e of deleted) {
+        void onRemoveDependency(e.target, e.source);
+      }
+    },
+    [onRemoveDependency],
+  );
+
+  const onNodeDoubleClick = useCallback<NodeMouseHandler>(
+    (_event, node) => {
+      if (node.type === 'taskBar') {
+        onOpenTask(node.id);
+      } else {
+        onOpenMarker(node.id);
+      }
+    },
+    [onOpenTask, onOpenMarker],
+  );
+
+  const onPaneClick = useCallback(
+    (event: React.MouseEvent) => {
+      const { x, y } = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const band = bands.find((b) => y >= b.yStart && y < b.yEnd);
+      if (!band) return;
+      const dayIndex = Math.max(0, Math.floor(x / DAY_WIDTH));
+      const date = addDays(rangeStart, dayIndex);
+      setAddPopover({ clientX: event.clientX, clientY: event.clientY, projectId: band.projectId, date });
+    },
+    [bands, rangeStart, screenToFlowPosition],
+  );
+
+  function handlePick(kind: 'task' | 'event' | 'note') {
+    if (!addPopover) return;
+    setPendingAdd({ kind, projectId: addPopover.projectId, date: addPopover.date });
+    setAddPopover(null);
   }
 
-  function handleRowClick(e: React.MouseEvent<HTMLDivElement>, projectId: string) {
-    if ((e.target as HTMLElement).closest('button')) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const dayIndex = Math.max(0, Math.floor((e.clientX - rect.left) / DAY_WIDTH));
-    setClickAdd({ projectId, date: addDays(rangeStart, dayIndex) });
+  function jumpToToday() {
+    if (!todayInRange) return;
+    const width = wrapperRef.current?.clientWidth ?? 800;
+    const targetFlowX = todayOffset * DAY_WIDTH + DAY_WIDTH / 2;
+    const x = width / 2 - targetFlowX;
+    setViewport({ x, y: 0, zoom: 1 }, { duration: 300 });
+  }
+
+  function handleResizeStart(projectId: string, startHeight: number, startClientY: number) {
+    setResizing({ projectId, height: startHeight });
+
+    function computeHeight(clientY: number) {
+      return Math.max(startHeight + (clientY - startClientY), 40);
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      setResizing({ projectId, height: computeHeight(e.clientY) });
+    }
+
+    function onMouseUp(e: MouseEvent) {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      setResizing(null);
+      void onResizeProject(projectId, Math.round(computeHeight(e.clientY)));
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
   }
 
   return (
@@ -240,180 +435,93 @@ export function TimelineView({
           <p>プロジェクト・タスクを追加するとタイムラインが表示されるにゃ</p>
         </div>
       ) : (
-        <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: '70vh' }}>
-          <div style={{ width: LABEL_WIDTH + gridWidth }}>
-            <div className="sticky top-0 z-30 flex border-b bg-background">
-              <div
-                className="sticky left-0 z-40 flex shrink-0 items-end border-r bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground"
-                style={{ width: LABEL_WIDTH }}
+        <div className="overflow-y-auto" style={{ maxHeight: '70vh' }}>
+          <TimelineDateHeader
+            yearGroups={yearGroups}
+            monthGroups={monthGroups}
+            days={days}
+            today={today}
+            todayOffset={todayOffset}
+            todayInRange={todayInRange}
+            labelWidth={LABEL_WIDTH}
+          />
+          <div className="flex">
+            <ProjectLabelColumn
+              bands={bands}
+              projects={visibleProjects}
+              labelWidth={LABEL_WIDTH}
+              onOpenProject={onOpenProject}
+              onResizeStart={handleResizeStart}
+            />
+            <div ref={wrapperRef} className="relative flex-1" style={{ height: totalHeight }}>
+              <ReactFlow
+                className="nowheel"
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onNodeDrag={onNodeDrag}
+                onNodeDragStop={onNodeDragStop}
+                onEdgesDelete={onEdgesDelete}
+                onNodeDoubleClick={onNodeDoubleClick}
+                onPaneClick={onPaneClick}
+                deleteKeyCode={['Backspace', 'Delete']}
+                minZoom={1}
+                maxZoom={1}
+                panOnScroll={false}
+                zoomOnScroll={false}
+                zoomOnPinch={false}
+                zoomOnDoubleClick={false}
+                translateExtent={[
+                  [-EXTENT_PAD, 0],
+                  [gridWidth + EXTENT_PAD, totalHeight],
+                ]}
+                defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                proOptions={{ hideAttribution: true }}
               >
-                プロジェクト
-              </div>
-              <div className="flex flex-col bg-muted">
-                <div className="flex border-b border-border/60">
-                  {yearGroups.map((g, i) => (
-                    <div
-                      key={i}
-                      className="flex shrink-0 items-center justify-center border-r py-0.5 text-[11px] font-medium text-muted-foreground"
-                      style={{ width: g.count * DAY_WIDTH }}
-                    >
-                      {g.key}年
-                    </div>
-                  ))}
-                </div>
-                <div className="flex border-b border-border/60">
-                  {monthGroups.map((g, i) => (
-                    <div
-                      key={i}
-                      className="flex shrink-0 items-center justify-center border-r py-0.5 text-[11px] text-muted-foreground"
-                      style={{ width: g.count * DAY_WIDTH }}
-                    >
-                      {parseInt(g.key.slice(5, 7), 10)}月
-                    </div>
-                  ))}
-                </div>
-                <div className="relative flex">
-                  {todayInRange && (
-                    <div
-                      className="absolute top-0 h-full bg-amber-400/20"
-                      style={{ left: todayOffset * DAY_WIDTH, width: DAY_WIDTH }}
-                    />
-                  )}
-                  {days.map((d) => (
-                    <div
-                      key={d}
-                      className={`flex w-8 shrink-0 items-center justify-center border-r py-1 text-xs last:border-r-0 ${
-                        d === today ? 'font-semibold text-foreground' : dayColorClass(d)
-                      }`}
-                    >
-                      {parseInt(d.slice(8, 10), 10)}
-                    </div>
-                  ))}
-                </div>
-              </div>
+                <Background variant={BackgroundVariant.Lines} gap={DAY_WIDTH} color="var(--border)" />
+                <ProjectBandBackground bands={bands} />
+                <TodayHighlight todayOffset={todayOffset} todayInRange={todayInRange} />
+                <GroupBoxOverlay groups={groups} taskNodes={taskNodesForBoxes} onOpenGroup={onOpenGroup} />
+              </ReactFlow>
+              {addPopover && (
+                <AddItemPopover
+                  clientX={addPopover.clientX}
+                  clientY={addPopover.clientY}
+                  onPick={handlePick}
+                  onClose={() => setAddPopover(null)}
+                />
+              )}
             </div>
-
-            {visibleProjects.map((project) => {
-              const projectTasks = tasks.filter((t) => t.project_id === project.id);
-              const { placed, groupBoxes, laneCount } = assignLanes(projectTasks, rangeStart);
-              const hasGroups = groupBoxes.length > 0;
-              const topPad = hasGroups ? 26 : 8;
-              const rowHeight = topPad + laneCount * LANE_HEIGHT + (hasGroups ? BOX_PAD : 0) + 8;
-
-              return (
-                <div key={project.id} className="flex border-b last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => onOpenProject(project.id)}
-                    className="sticky left-0 z-20 flex shrink-0 items-start gap-2 border-r bg-background px-3 py-2 text-left text-sm font-semibold hover:bg-muted"
-                    style={{ width: LABEL_WIDTH }}
-                  >
-                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: project.color }} />
-                    <span className="truncate">{project.name}</span>
-                  </button>
-                  <div
-                    className="relative cursor-crosshair"
-                    style={{ width: gridWidth, height: rowHeight }}
-                    onClick={(e) => handleRowClick(e, project.id)}
-                  >
-                    <div
-                      className="absolute inset-0"
-                      style={{
-                        backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${DAY_WIDTH - 1}px, var(--border) ${DAY_WIDTH - 1}px, var(--border) ${DAY_WIDTH}px)`,
-                      }}
-                    />
-                    {todayInRange && (
-                      <div
-                        className="absolute top-0 h-full bg-amber-400/10"
-                        style={{ left: todayOffset * DAY_WIDTH, width: DAY_WIDTH }}
-                      />
-                    )}
-
-                    {groupBoxes.map((box) => {
-                      const group = groups.find((g) => g.id === box.groupId);
-                      if (!group) return null;
-                      const left = box.startOffset * DAY_WIDTH - 6;
-                      const top = topPad + box.laneStart * LANE_HEIGHT + BAR_INSET - BOX_PAD;
-                      const width = box.span * DAY_WIDTH + 12;
-                      const height = (box.laneCount - 1) * LANE_HEIGHT + BAR_HEIGHT + BOX_PAD * 2;
-                      return (
-                        <div key={box.groupId}>
-                          <div
-                            className="absolute z-[2] rounded-lg border-2"
-                            style={{
-                              left,
-                              top,
-                              width,
-                              height,
-                              borderColor: group.color,
-                              backgroundColor: `${group.color}1a`,
-                            }}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => onOpenGroup(group.id)}
-                            className="absolute z-[3] truncate rounded px-1.5 text-[10px] font-medium text-white shadow-sm hover:opacity-90"
-                            style={{ left, top: top - 14, maxWidth: width, backgroundColor: group.color }}
-                          >
-                            {group.name}
-                          </button>
-                        </div>
-                      );
-                    })}
-
-                    {placed.map(({ task: t, lane, startOffset, span }) => {
-                      const member = memberOf(members, t.member_id);
-                      const group = t.group_id ? groups.find((g) => g.id === t.group_id) : undefined;
-                      const color = member?.color ?? '#6366f1';
-                      return (
-                        <TaskDialog
-                          key={t.id}
-                          members={members}
-                          projects={projects}
-                          groups={groups}
-                          tasks={tasks}
-                          task={t}
-                          onSubmit={(data, dependsOn) => onUpdateTask(t.id, data, dependsOn)}
-                          onDelete={() => onDeleteTask(t.id)}
-                          trigger={
-                            <button
-                              type="button"
-                              className="absolute z-10 flex items-center overflow-hidden rounded-md px-2 text-left text-xs shadow-sm transition-opacity hover:opacity-90"
-                              style={{
-                                left: startOffset * DAY_WIDTH + 2,
-                                width: span * DAY_WIDTH - 4,
-                                top: topPad + lane * LANE_HEIGHT + BAR_INSET,
-                                height: BAR_HEIGHT,
-                                ...barStyle(t.status, color),
-                              }}
-                              title={`${t.title}${group ? ` / ${group.name}` : ''}`}
-                            >
-                              <span className="truncate">{t.title}</span>
-                            </button>
-                          }
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       )}
 
-      {clickAdd && (
+      {pendingAdd?.kind === 'task' && (
         <TaskDialog
           members={members}
           projects={projects}
           groups={groups}
           tasks={tasks}
-          defaultProjectId={clickAdd.projectId}
-          defaultStartDate={clickAdd.date}
-          defaultEndDate={clickAdd.date}
-          open={Boolean(clickAdd)}
-          onOpenChange={(o) => !o && setClickAdd(null)}
+          defaultProjectId={pendingAdd.projectId}
+          defaultStartDate={pendingAdd.date}
+          defaultEndDate={pendingAdd.date}
+          open
+          onOpenChange={(o) => !o && setPendingAdd(null)}
           onSubmit={(data, dependsOn) => onCreateTask(data as CreateTaskInput, dependsOn)}
+        />
+      )}
+      {pendingAdd && pendingAdd.kind !== 'task' && (
+        <EventDialog
+          projects={projects}
+          defaultProjectId={pendingAdd.projectId}
+          defaultDate={pendingAdd.date}
+          defaultItemType={pendingAdd.kind as MarkerType}
+          open
+          onOpenChange={(o) => !o && setPendingAdd(null)}
+          onSubmit={(data) => onCreateMarker(data as CreateMarkerInput)}
         />
       )}
     </div>

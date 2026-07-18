@@ -2,20 +2,24 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import type {
   CreateGroupInput,
+  CreateMarkerInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateTimelineInput,
   Group,
+  Marker,
   Member,
   Project,
   Task,
   Timeline,
+  UpdateMarkerInput,
   UpdateTaskInput,
 } from './types';
 import { MemberDialog } from './components/MemberDialog';
 import { ProjectDialog } from './components/ProjectDialog';
 import { GroupDialog } from './components/GroupDialog';
 import { TaskDialog } from './components/TaskDialog';
+import { EventDialog } from './components/EventDialog';
 import { TimelineView } from './components/TimelineView';
 import { KanbanView } from './components/KanbanView';
 import { TableView } from './components/TableView';
@@ -36,26 +40,30 @@ function App() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [markers, setMarkers] = useState<Marker[]>([]);
   const [view, setView] = useState<ViewKey>('timeline');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingMarkerId, setEditingMarkerId] = useState<string | null>(null);
 
   async function refresh() {
-    const [m, p, g, tl, t] = await Promise.all([
+    const [m, p, g, tl, t, mk] = await Promise.all([
       api.listMembers(),
       api.listProjects(),
       api.listGroups(),
       api.listTimelines(),
       api.listTasks(),
+      api.listMarkers(),
     ]);
     setMembers(m);
     setProjects(p);
     setGroups(g);
     setTimelines(tl);
     setTasks(t);
+    setMarkers(mk);
   }
 
   useEffect(() => {
@@ -89,6 +97,13 @@ function App() {
   async function handleUpdateProject(id: string, data: CreateProjectInput) {
     await withErrorHandling(async () => {
       await api.updateProject(id, data);
+      await refresh();
+    });
+  }
+
+  async function handleResizeProject(id: string, height: number) {
+    await withErrorHandling(async () => {
+      await api.updateProject(id, { row_height: height });
       await refresh();
     });
   }
@@ -193,9 +208,38 @@ function App() {
     });
   }
 
+  async function handleCreateMarker(data: CreateMarkerInput) {
+    await withErrorHandling(async () => {
+      await api.createMarker(data);
+      await refresh();
+    });
+  }
+
+  async function handleUpdateMarker(id: string, data: UpdateMarkerInput) {
+    await withErrorHandling(async () => {
+      await api.updateMarker(id, data);
+      await refresh();
+    });
+  }
+
+  async function handleDeleteMarker(id: string) {
+    await withErrorHandling(async () => {
+      await api.deleteMarker(id);
+      await refresh();
+    });
+  }
+
+  async function handleMoveMarkerNode(markerId: string, y: number) {
+    await withErrorHandling(async () => {
+      await api.updateMarker(markerId, { node_y: y });
+      await refresh();
+    });
+  }
+
   const editingTask = useMemo(() => tasks.find((t) => t.id === editingTaskId), [tasks, editingTaskId]);
   const editingProject = useMemo(() => projects.find((p) => p.id === editingProjectId), [projects, editingProjectId]);
   const editingGroup = useMemo(() => groups.find((g) => g.id === editingGroupId), [groups, editingGroupId]);
+  const editingMarker = useMemo(() => markers.find((m) => m.id === editingMarkerId), [markers, editingMarkerId]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
@@ -223,6 +267,11 @@ function App() {
             tasks={tasks}
             onSubmit={(data, dependsOn) => handleCreateTask(data as CreateTaskInput, dependsOn)}
             trigger={<button type="button" className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:opacity-90">+ タスク</button>}
+          />
+          <EventDialog
+            projects={projects}
+            onSubmit={(data) => handleCreateMarker(data as CreateMarkerInput)}
+            trigger={<button type="button" className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">+ イベント/メモ</button>}
           />
         </div>
       </header>
@@ -271,15 +320,22 @@ function App() {
               projects={projects}
               groups={groups}
               tasks={tasks}
+              markers={markers}
               timelines={timelines}
               onCreateTask={handleCreateTask}
-              onUpdateTask={handleUpdateTask}
-              onDeleteTask={handleDeleteTask}
+              onMoveTaskNode={handleMoveNode}
+              onAddDependency={handleAddDependency}
+              onRemoveDependency={handleRemoveDependency}
+              onCreateMarker={handleCreateMarker}
+              onMoveMarkerNode={handleMoveMarkerNode}
               onCreateTimeline={handleCreateTimeline}
               onUpdateTimeline={handleUpdateTimeline}
               onDeleteTimeline={handleDeleteTimeline}
               onOpenProject={setEditingProjectId}
               onOpenGroup={setEditingGroupId}
+              onOpenTask={setEditingTaskId}
+              onOpenMarker={setEditingMarkerId}
+              onResizeProject={handleResizeProject}
             />
           )}
           {view === 'kanban' && (
@@ -355,6 +411,17 @@ function App() {
           onOpenChange={(o) => !o && setEditingGroupId(null)}
           onSubmit={(data) => handleUpdateGroup(editingGroup.id, data)}
           onDelete={() => handleDeleteGroup(editingGroup.id)}
+        />
+      )}
+
+      {editingMarker && (
+        <EventDialog
+          projects={projects}
+          marker={editingMarker}
+          open={Boolean(editingMarkerId)}
+          onOpenChange={(o) => !o && setEditingMarkerId(null)}
+          onSubmit={(data) => handleUpdateMarker(editingMarker.id, data)}
+          onDelete={() => handleDeleteMarker(editingMarker.id)}
         />
       )}
     </div>

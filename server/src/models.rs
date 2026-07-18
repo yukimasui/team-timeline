@@ -27,6 +27,7 @@ pub struct Project {
     pub color: String,
     pub member_id: Option<String>,
     pub created_at: String,
+    pub row_height: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -34,6 +35,8 @@ pub struct CreateProject {
     pub name: String,
     pub color: Option<String>,
     pub member_id: Option<String>,
+    /// 0(または未指定)はタスク数に応じた自動計算を表す
+    pub row_height: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +45,7 @@ pub struct UpdateProject {
     pub color: Option<String>,
     /// 空文字は担当者なし(NULL)として扱う
     pub member_id: Option<String>,
+    pub row_height: Option<f64>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -163,3 +167,45 @@ pub struct UpdateTimeline {
 
 pub const VALID_STATUSES: [&str; 3] = ["todo", "in_progress", "done"];
 pub const VALID_PRIORITIES: [&str; 3] = ["high", "medium", "low"];
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct Marker {
+    pub id: String,
+    pub project_id: String,
+    pub item_type: String,
+    pub title: String,
+    pub description: String,
+    pub color: String,
+    pub start_date: String,
+    pub end_date: Option<String>,
+    pub node_y: f64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateMarker {
+    pub project_id: String,
+    pub item_type: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub start_date: String,
+    pub end_date: Option<String>,
+    pub node_y: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateMarker {
+    pub project_id: Option<String>,
+    pub item_type: Option<String>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub color: Option<String>,
+    pub start_date: Option<String>,
+    /// 空文字は「終了日なし(NULL、ノート)」として扱う
+    pub end_date: Option<String>,
+    pub node_y: Option<f64>,
+}
+
+pub const VALID_ITEM_TYPES: [&str; 2] = ["event", "note"];

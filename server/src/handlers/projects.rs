@@ -35,12 +35,14 @@ pub async fn create_project(
     let id = uuid::Uuid::new_v4().to_string();
     let color = payload.color.unwrap_or_else(|| "#6366f1".to_string());
     let member_id = payload.member_id.filter(|s| !s.is_empty());
+    let row_height = payload.row_height.unwrap_or(0.0);
 
-    sqlx::query("INSERT INTO projects (id, name, color, member_id) VALUES (?, ?, ?, ?)")
+    sqlx::query("INSERT INTO projects (id, name, color, member_id, row_height) VALUES (?, ?, ?, ?, ?)")
         .bind(&id)
         .bind(&payload.name)
         .bind(&color)
         .bind(&member_id)
+        .bind(row_height)
         .execute(&state.pool)
         .await?;
 
@@ -61,11 +63,13 @@ pub async fn update_project(
         Some(s) if s.is_empty() => None,
         Some(s) => Some(s),
     };
+    let row_height = payload.row_height.unwrap_or(existing.row_height);
 
-    sqlx::query("UPDATE projects SET name = ?, color = ?, member_id = ? WHERE id = ?")
+    sqlx::query("UPDATE projects SET name = ?, color = ?, member_id = ?, row_height = ? WHERE id = ?")
         .bind(&name)
         .bind(&color)
         .bind(&member_id)
+        .bind(row_height)
         .bind(&id)
         .execute(&state.pool)
         .await?;
