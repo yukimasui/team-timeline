@@ -110,6 +110,7 @@ export interface Marker {
   start_date: string;
   /** ノートはnull(単一日)。イベントは常に値を持つ */
   end_date: string | null;
+  node_x: number;
   node_y: number;
   created_at: string;
   updated_at: string;
@@ -124,6 +125,7 @@ export interface CreateMarkerInput {
   start_date: string;
   /** 空文字は「終了日なし(ノート)」を表す */
   end_date?: string;
+  node_x?: number;
   node_y?: number;
 }
 

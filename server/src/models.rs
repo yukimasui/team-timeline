@@ -178,6 +178,7 @@ pub struct Marker {
     pub color: String,
     pub start_date: String,
     pub end_date: Option<String>,
+    pub node_x: f64,
     pub node_y: f64,
     pub created_at: String,
     pub updated_at: String,
@@ -192,6 +193,7 @@ pub struct CreateMarker {
     pub color: Option<String>,
     pub start_date: String,
     pub end_date: Option<String>,
+    pub node_x: Option<f64>,
     pub node_y: Option<f64>,
 }
 
@@ -205,6 +207,7 @@ pub struct UpdateMarker {
     pub start_date: Option<String>,
     /// 空文字は「終了日なし(NULL、ノート)」として扱う
     pub end_date: Option<String>,
+    pub node_x: Option<f64>,
     pub node_y: Option<f64>,
 }
 

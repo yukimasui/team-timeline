@@ -14,6 +14,7 @@ import {
   type Node,
   type NodeMouseHandler,
   type OnNodeDrag,
+  type ResizeParams,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Button } from '@/components/ui/button';
@@ -42,9 +43,11 @@ import {
   LABEL_WIDTH,
   LANE_HEIGHT,
   MIN_ROW_HEIGHT,
-  NOTE_SIZE,
+  NOTE_WIDTH,
+  NOTE_HEIGHT,
 } from './timeline/constants';
 import { groupConsecutiveWithOffset } from './timeline/timelineVisuals';
+import { dateFromResize } from './timeline/resizeMath';
 import type { ProjectBand } from './timeline/types';
 import { TaskBarNode, type TaskBarNodeData } from './timeline/TaskBarNode';
 import { TimelineEventNode, type TimelineEventNodeData } from './timeline/TimelineEventNode';
@@ -69,10 +72,12 @@ interface Props {
   timelines: Timeline[];
   onCreateTask: (data: CreateTaskInput, dependsOn: string[]) => Promise<void>;
   onMoveTaskNode: (taskId: string, x: number, y: number) => Promise<void>;
+  onResizeTaskNode: (taskId: string, data: { start_date?: string; end_date?: string }) => Promise<void>;
   onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onRemoveDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onCreateMarker: (data: CreateMarkerInput) => Promise<void>;
-  onMoveMarkerNode: (markerId: string, y: number) => Promise<void>;
+  onMoveMarkerNode: (markerId: string, y: number, x?: number) => Promise<void>;
+  onResizeMarkerNode: (markerId: string, data: { start_date?: string; end_date?: string }) => Promise<void>;
   onCreateTimeline: (data: CreateTimelineInput) => Promise<void>;
   onUpdateTimeline: (id: string, data: CreateTimelineInput) => Promise<void>;
   onDeleteTimeline: (id: string) => Promise<void>;
@@ -103,10 +108,12 @@ function TimelineCanvas({
   timelines,
   onCreateTask,
   onMoveTaskNode,
+  onResizeTaskNode,
   onAddDependency,
   onRemoveDependency,
   onCreateMarker,
   onMoveMarkerNode,
+  onResizeMarkerNode,
   onCreateTimeline,
   onUpdateTimeline,
   onDeleteTimeline,
@@ -142,6 +149,11 @@ function TimelineCanvas({
   const visibleMarkers = useMemo(
     () => markers.filter((m) => visibleProjectIds.has(m.project_id)),
     [markers, visibleProjectIds],
+  );
+  // ノートは日付グリッドに縛られず横方向に自由移動できる(fixedXByIdの対象から外すため)
+  const noteIds = useMemo(
+    () => new Set(visibleMarkers.filter((m) => m.item_type === 'note').map((m) => m.id)),
+    [visibleMarkers],
   );
 
   // 現状はタスクの有無にかかわらず2026年通年を基準表示にする(将来的に可変レンジ化する想定)
@@ -225,6 +237,15 @@ function TimelineCanvas({
           const width = Math.max(item.span * DAY_WIDTH - 4, 8);
           const member = memberOf(members, task.member_id);
           const y = band.yStart + (task.node_y !== 0 ? task.node_y : defaultOffset);
+          const onResizeEnd = (edge: 'left' | 'right', params: ResizeParams) => {
+            if (edge === 'left') {
+              const newStart = dateFromResize('left', params, rangeStart, task.end_date);
+              if (newStart !== task.start_date) void onResizeTaskNode(task.id, { start_date: newStart });
+            } else {
+              const newEnd = dateFromResize('right', params, rangeStart, task.start_date);
+              if (newEnd !== task.end_date) void onResizeTaskNode(task.id, { end_date: newEnd });
+            }
+          };
           next.push({
             id: task.id,
             type: 'taskBar',
@@ -238,23 +259,35 @@ function TimelineCanvas({
               status: task.status,
               color: member?.color ?? '#6366f1',
               groupId: task.group_id,
+              onResizeEnd,
             } satisfies TaskBarNodeData,
           });
         } else if (marker) {
           const y = band.yStart + (marker.node_y !== 0 ? marker.node_y : defaultOffset);
           if (marker.item_type === 'note') {
+            const noteX = marker.node_x !== 0 ? marker.node_x : x;
             next.push({
               id: marker.id,
               type: 'note',
-              position: { x, y },
-              width: NOTE_SIZE,
-              height: NOTE_SIZE,
-              style: { width: NOTE_SIZE, height: NOTE_SIZE },
+              position: { x: noteX, y },
+              width: NOTE_WIDTH,
+              height: NOTE_HEIGHT,
+              style: { width: NOTE_WIDTH, height: NOTE_HEIGHT },
               extent,
               data: { title: marker.title, color: marker.color } satisfies TimelineNoteNodeData,
             });
           } else {
             const width = Math.max(item.span * DAY_WIDTH - 4, 8);
+            const onResizeEnd = (edge: 'left' | 'right', params: ResizeParams) => {
+              const markerEndDate = marker.end_date ?? marker.start_date;
+              if (edge === 'left') {
+                const newStart = dateFromResize('left', params, rangeStart, markerEndDate);
+                if (newStart !== marker.start_date) void onResizeMarkerNode(marker.id, { start_date: newStart });
+              } else {
+                const newEnd = dateFromResize('right', params, rangeStart, marker.start_date);
+                if (newEnd !== markerEndDate) void onResizeMarkerNode(marker.id, { end_date: newEnd });
+              }
+            };
             next.push({
               id: marker.id,
               type: 'event',
@@ -263,7 +296,7 @@ function TimelineCanvas({
               height: BAR_HEIGHT,
               style: { width, height: BAR_HEIGHT },
               extent,
-              data: { title: marker.title, color: marker.color } satisfies TimelineEventNodeData,
+              data: { title: marker.title, color: marker.color, onResizeEnd } satisfies TimelineEventNodeData,
             });
           }
         }
@@ -271,7 +304,7 @@ function TimelineCanvas({
     }
     setNodes(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bands, visibleTasks, visibleMarkers, members, setNodes]);
+  }, [bands, visibleTasks, visibleMarkers, members, setNodes, rangeStart, onResizeTaskNode, onResizeMarkerNode]);
 
   useEffect(() => {
     const visibleIds = new Set(visibleTasks.map((t) => t.id));
@@ -307,15 +340,17 @@ function TimelineCanvas({
   );
 
   // 各アイテムの本来のX(日付から機械的に決まる、固定値)。onNodeDragで毎フレームこの値に戻す
+  // ノートはここに含めない(横方向に自由移動させるため)
   const fixedXById = useMemo(() => {
     const map = new Map<string, number>();
     for (const band of bands) {
       for (const item of band.placed) {
+        if (noteIds.has(item.id)) continue;
         map.set(item.id, item.startOffset * DAY_WIDTH);
       }
     }
     return map;
-  }, [bands]);
+  }, [bands, noteIds]);
 
   // 各アイテムが属するバンド(node_yをband.yStart基準の相対オフセットとして永続化するために使う)
   const bandById = useMemo(() => {
@@ -347,11 +382,13 @@ function TimelineCanvas({
 
   const onNodeDragStop = useCallback<OnNodeDrag<Node<TimelineNodeData>>>(
     (_event, node) => {
-      const fixedX = fixedXById.get(node.id) ?? node.position.x;
       const band = bandById.get(node.id);
       const y = Math.round(node.position.y) - (band?.yStart ?? 0);
       if (node.type === 'taskBar') {
+        const fixedX = fixedXById.get(node.id) ?? node.position.x;
         void onMoveTaskNode(node.id, Math.round(fixedX), y);
+      } else if (node.type === 'note') {
+        void onMoveMarkerNode(node.id, y, Math.round(node.position.x));
       } else {
         void onMoveMarkerNode(node.id, y);
       }

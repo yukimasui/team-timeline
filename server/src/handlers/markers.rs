@@ -57,12 +57,13 @@ pub async fn create_marker(
     let id = uuid::Uuid::new_v4().to_string();
     let description = payload.description.unwrap_or_default();
     let color = payload.color.unwrap_or_else(|| "#6366f1".to_string());
+    let node_x = payload.node_x.unwrap_or(0.0);
     let node_y = payload.node_y.unwrap_or(0.0);
     let end_date = normalize_end_date(&payload.item_type, payload.end_date, &payload.start_date);
 
     sqlx::query(
-        "INSERT INTO markers (id, project_id, item_type, title, description, color, start_date, end_date, node_y)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO markers (id, project_id, item_type, title, description, color, start_date, end_date, node_x, node_y)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&payload.project_id)
@@ -72,6 +73,7 @@ pub async fn create_marker(
     .bind(&color)
     .bind(&payload.start_date)
     .bind(&end_date)
+    .bind(node_x)
     .bind(node_y)
     .execute(&state.pool)
     .await?;
@@ -99,11 +101,12 @@ pub async fn update_marker(
         payload.end_date.or(existing.end_date),
         &start_date,
     );
+    let node_x = payload.node_x.unwrap_or(existing.node_x);
     let node_y = payload.node_y.unwrap_or(existing.node_y);
 
     sqlx::query(
         "UPDATE markers SET project_id = ?, item_type = ?, title = ?, description = ?, color = ?, start_date = ?, end_date = ?,
-         node_y = ?, updated_at = datetime('now') WHERE id = ?",
+         node_x = ?, node_y = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .bind(&project_id)
     .bind(&item_type)
@@ -112,6 +115,7 @@ pub async fn update_marker(
     .bind(&color)
     .bind(&start_date)
     .bind(&end_date)
+    .bind(node_x)
     .bind(node_y)
     .bind(&id)
     .execute(&state.pool)
