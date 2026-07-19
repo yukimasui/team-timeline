@@ -35,15 +35,18 @@ export function dayDiff(a: string, b: string): number {
 
 export function addDays(date: string, days: number): string {
   const d = new Date(date);
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** ブラウザのローカルタイムゾーン設定に関わらず、常にJST(UTC+9)基準の「今日」を返す */
 export function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Date(Date.now() + JST_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 export function formatShort(date: string): string {
   const d = new Date(date);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
 }

@@ -12,7 +12,7 @@ export function barStyle(status: Status, color: string): CSSProperties {
 }
 
 export function dayColorClass(d: string): string {
-  const dow = new Date(d).getDay();
+  const dow = new Date(d).getUTCDay();
   if (dow === 0) return 'text-red-500';
   if (dow === 6) return 'text-blue-500';
   return 'text-muted-foreground';
