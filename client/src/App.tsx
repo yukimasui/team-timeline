@@ -215,6 +215,16 @@ function App() {
     });
   }
 
+  async function handleSlideTaskNode(
+    taskId: string,
+    data: { node_y: number; start_date: string; end_date: string },
+  ) {
+    await withErrorHandling(async () => {
+      await api.updateTask(taskId, data);
+      await refresh();
+    });
+  }
+
   async function handleCreateMarker(data: CreateMarkerInput) {
     await withErrorHandling(async () => {
       await api.createMarker(data);
@@ -239,6 +249,16 @@ function App() {
   async function handleMoveMarkerNode(markerId: string, y: number, x?: number) {
     await withErrorHandling(async () => {
       await api.updateMarker(markerId, x !== undefined ? { node_y: y, node_x: x } : { node_y: y });
+      await refresh();
+    });
+  }
+
+  async function handleSlideMarkerNode(
+    markerId: string,
+    data: { node_y: number; start_date: string; end_date: string },
+  ) {
+    await withErrorHandling(async () => {
+      await api.updateMarker(markerId, data);
       await refresh();
     });
   }
@@ -337,12 +357,13 @@ function App() {
               markers={markers}
               timelines={timelines}
               onCreateTask={handleCreateTask}
-              onMoveTaskNode={handleMoveNode}
+              onSlideTaskNode={handleSlideTaskNode}
               onResizeTaskNode={handleResizeTaskNode}
               onAddDependency={handleAddDependency}
               onRemoveDependency={handleRemoveDependency}
               onCreateMarker={handleCreateMarker}
               onMoveMarkerNode={handleMoveMarkerNode}
+              onSlideMarkerNode={handleSlideMarkerNode}
               onResizeMarkerNode={handleResizeMarkerNode}
               onCreateTimeline={handleCreateTimeline}
               onUpdateTimeline={handleUpdateTimeline}

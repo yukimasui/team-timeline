@@ -71,12 +71,13 @@ interface Props {
   markers: Marker[];
   timelines: Timeline[];
   onCreateTask: (data: CreateTaskInput, dependsOn: string[]) => Promise<void>;
-  onMoveTaskNode: (taskId: string, x: number, y: number) => Promise<void>;
+  onSlideTaskNode: (taskId: string, data: { node_y: number; start_date: string; end_date: string }) => Promise<void>;
   onResizeTaskNode: (taskId: string, data: { start_date?: string; end_date?: string }) => Promise<void>;
   onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onRemoveDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onCreateMarker: (data: CreateMarkerInput) => Promise<void>;
   onMoveMarkerNode: (markerId: string, y: number, x?: number) => Promise<void>;
+  onSlideMarkerNode: (markerId: string, data: { node_y: number; start_date: string; end_date: string }) => Promise<void>;
   onResizeMarkerNode: (markerId: string, data: { start_date?: string; end_date?: string }) => Promise<void>;
   onCreateTimeline: (data: CreateTimelineInput) => Promise<void>;
   onUpdateTimeline: (id: string, data: CreateTimelineInput) => Promise<void>;
@@ -107,12 +108,13 @@ function TimelineCanvas({
   markers,
   timelines,
   onCreateTask,
-  onMoveTaskNode,
+  onSlideTaskNode,
   onResizeTaskNode,
   onAddDependency,
   onRemoveDependency,
   onCreateMarker,
   onMoveMarkerNode,
+  onSlideMarkerNode,
   onResizeMarkerNode,
   onCreateTimeline,
   onUpdateTimeline,
@@ -149,11 +151,6 @@ function TimelineCanvas({
   const visibleMarkers = useMemo(
     () => markers.filter((m) => visibleProjectIds.has(m.project_id)),
     [markers, visibleProjectIds],
-  );
-  // ノートは日付グリッドに縛られず横方向に自由移動できる(fixedXByIdの対象から外すため)
-  const noteIds = useMemo(
-    () => new Set(visibleMarkers.filter((m) => m.item_type === 'note').map((m) => m.id)),
-    [visibleMarkers],
   );
 
   // 現状はタスクの有無にかかわらず2026年通年を基準表示にする(将来的に可変レンジ化する想定)
@@ -226,9 +223,7 @@ function TimelineCanvas({
         // node_yはバンド絶対座標ではなく、band.yStartからの相対オフセットとして保持する
         // (プロジェクトの行高さ変更でband.yStartが動いても、バンド内の相対位置がずれないようにするため)
         const defaultOffset = band.topPad + item.lane * LANE_HEIGHT + BAR_INSET;
-        // X方向は[x, x]のような幅ゼロの範囲にすると、ReactFlowがノード幅を考慮してクランプする際に
-        // 実際の描画位置がノード幅ぶん左にずれてしまう(グループ枠は正しいxで計算するため、そこでズレが可視化される)。
-        // そのためX方向はextentで制限せず、onNodeDragで毎フレームxを固定値に戻す方式にする。
+        // X方向は日毎グリッドスナップで自由にドラッグできるようextentで制限しない(Y方向のみバンド内に固定)。
         const extent: CoordinateExtent = [
           [Number.NEGATIVE_INFINITY, band.yStart],
           [Number.POSITIVE_INFINITY, band.yEnd - BAR_HEIGHT],
@@ -339,19 +334,6 @@ function TimelineCanvas({
     [nodes],
   );
 
-  // 各アイテムの本来のX(日付から機械的に決まる、固定値)。onNodeDragで毎フレームこの値に戻す
-  // ノートはここに含めない(横方向に自由移動させるため)
-  const fixedXById = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const band of bands) {
-      for (const item of band.placed) {
-        if (noteIds.has(item.id)) continue;
-        map.set(item.id, item.startOffset * DAY_WIDTH);
-      }
-    }
-    return map;
-  }, [bands, noteIds]);
-
   // 各アイテムが属するバンド(node_yをband.yStart基準の相対オフセットとして永続化するために使う)
   const bandById = useMemo(() => {
     const map = new Map<string, ProjectBand>();
@@ -371,29 +353,38 @@ function TimelineCanvas({
     [onAddDependency],
   );
 
+  // タスクバー・イベントバーはドラッグ中から日毎グリッドにスナップして見せる(ノートは日付を持たないため対象外、自由移動のまま)
   const onNodeDrag = useCallback<OnNodeDrag<Node<TimelineNodeData>>>(
     (_event, node) => {
-      const fixedX = fixedXById.get(node.id);
-      if (fixedX === undefined || node.position.x === fixedX) return;
-      setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: { x: fixedX, y: n.position.y } } : n)));
+      if (node.type === 'note') return;
+      const snappedX = Math.round(node.position.x / DAY_WIDTH) * DAY_WIDTH;
+      if (node.position.x === snappedX) return;
+      setNodes((nds) => nds.map((n) => (n.id === node.id ? { ...n, position: { x: snappedX, y: n.position.y } } : n)));
     },
-    [fixedXById, setNodes],
+    [setNodes],
   );
 
   const onNodeDragStop = useCallback<OnNodeDrag<Node<TimelineNodeData>>>(
     (_event, node) => {
       const band = bandById.get(node.id);
       const y = Math.round(node.position.y) - (band?.yStart ?? 0);
+      const dayIndex = Math.round(node.position.x / DAY_WIDTH);
+      const newStart = addDays(rangeStart, dayIndex);
       if (node.type === 'taskBar') {
-        const fixedX = fixedXById.get(node.id) ?? node.position.x;
-        void onMoveTaskNode(node.id, Math.round(fixedX), y);
+        const task = visibleTasks.find((t) => t.id === node.id);
+        if (!task) return;
+        const duration = dayDiff(task.start_date, task.end_date);
+        void onSlideTaskNode(node.id, { node_y: y, start_date: newStart, end_date: addDays(newStart, duration) });
       } else if (node.type === 'note') {
         void onMoveMarkerNode(node.id, y, Math.round(node.position.x));
       } else {
-        void onMoveMarkerNode(node.id, y);
+        const marker = visibleMarkers.find((m) => m.id === node.id);
+        if (!marker) return;
+        const duration = dayDiff(marker.start_date, marker.end_date ?? marker.start_date);
+        void onSlideMarkerNode(node.id, { node_y: y, start_date: newStart, end_date: addDays(newStart, duration) });
       }
     },
-    [fixedXById, bandById, onMoveTaskNode, onMoveMarkerNode],
+    [bandById, rangeStart, visibleTasks, visibleMarkers, onSlideTaskNode, onMoveMarkerNode, onSlideMarkerNode],
   );
 
   const onEdgesDelete = useCallback(

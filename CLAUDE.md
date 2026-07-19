@@ -103,7 +103,8 @@ API_BASE="http://localhost:8123" python3 scripts/seed.py  # ポートを変え�
 - タイムラインのタスクバーの色はステータスで切り替える(`barStyle()`関数): 未着手=担当者カラーを半透明、進行中=担当者カラー原色、完了=枠線が担当者カラーで内側は視認性重視の濃いめグレー(`#9ca3af`)固定。
 - タイムラインの空いている場所をクリックするとその日を開始日・終了日にしたタスク追加ダイアログが開く(`handleRowClick`)。クリック判定は`(e.target as HTMLElement).closest('button')`でタスクバー等のボタン要素上のクリックを除外している。
 - タイムラインのタブ(`timelines`)はプロジェクトの表示絞り込みに使う。「全体」タブはDBに存在しない特別なUI状態(`activeTimelineId === null`)。タブバーは`TimelineTabs.tsx`としてTimelineView/GraphViewで共有しているが、タブの選択状態(`activeTimelineId`)自体は各ビューがローカルstateで独立して持つ(意図的な設計。ビューを切り替えても互いのタブ選択に影響しない)。
-- 依存関係グラフのノードは横方向(X)がタスクの`start_date`から機械的に計算され、`extent`でドラッグをロックしている(横には動かせない)。縦方向(Y)のみ自由にドラッグでき、`onNodeDragStop`でAPIへPUTして`node_y`を永続化する(`node_x`もPUTはされるが表示上は常にstart_dateから再計算されるため無視される)。初期値(0)のタスクはインデックスベースの自動配置にフォールバックする。背景の日付ルーラーは`useViewport()`でパン量を取得し画面座標に変換して描画している(`GraphView.tsx`の`DateAxis`)。
+- タイムラインのタスクバー・イベントバーは横方向にドラッグでき、`onNodeDragStop`でX座標を`DAY_WIDTH`(32px)単位の日数に丸めて`start_date`を再計算し、元の期間長(`dayDiff(start_date, end_date)`)を維持したまま`end_date`も平行移動して算出、`node_y`とあわせて`onSlideTaskNode`/`onSlideMarkerNode`(App.tsxの`handleSlideTaskNode`/`handleSlideMarkerNode`)経由でAPIへPUTする(スナップはドラッグ確定時のみで、リサイズと同じ設計)。ノート(`note`)は日付を持たないため対象外で、従来通り`node_x`/`node_y`のみを自由に更新する。左右の端の細いハンドル(`NodeResizeControl`)をつまむと、こちらはバー全体のスライドではなく片側の日付だけを伸縮する`onResizeTaskNode`/`onResizeMarkerNode`が呼ばれる。
+- 依存関係グラフ(GraphView)は将来的に廃止予定のビュー(意図的に横スライド機能は入れていない)。ノードは横方向(X)がタスクの`start_date`から機械的に計算され、`extent`でドラッグをロックしている(横には動かせない)。縦方向(Y)のみ自由にドラッグでき、`onNodeDragStop`でAPIへPUTして`node_y`を永続化する(`node_x`もPUTはされるが表示上は常にstart_dateから再計算されるため無視される)。初期値(0)のタスクはインデックスベースの自動配置にフォールバックする。背景の日付ルーラーは`useViewport()`でパン量を取得し画面座標に変換して描画している(`GraphView.tsx`の`DateAxis`)。
 - git運用: `main`を汚さないよう`develop`ブランチで作業し、区切りの良いところでPRにまとめる。
 - **commit / push / PR作成など、リポジトリの状態や履歴を変える操作は必ず事前にユーザーに確認を取り、了承を得てから実行する。** 了承なしに勝手に実行しない。
 - Issueに取り組んだときは、
