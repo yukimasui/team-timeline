@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
-import { useViewport } from '@xyflow/react';
+import { useCallback, useMemo } from 'react';
+import { useStore, useViewport, type ReactFlowState } from '@xyflow/react';
 import type { Group } from '@/types';
 import { BAR_HEIGHT, BOX_PAD } from './constants';
+import type { TaskBarNodeData } from './TaskBarNode';
 
 export interface GroupBoxTaskNode {
   id: string;
@@ -13,16 +14,52 @@ export interface GroupBoxTaskNode {
 
 interface Props {
   groups: Group[];
-  taskNodes: GroupBoxTaskNode[];
   onOpenGroup: (id: string) => void;
 }
 
+function eqTaskNodes(a: GroupBoxTaskNode[], b: GroupBoxTaskNode[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (
+      a[i].id !== b[i].id ||
+      a[i].groupId !== b[i].groupId ||
+      a[i].x !== b[i].x ||
+      a[i].y !== b[i].y ||
+      a[i].width !== b[i].width
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
- * グループ枠は現在の nodes state から毎回ライブ計算する(RFのparentId機能は使わない)。
- * ドラッグ中もリアルタイムに追従する。
+ * グループ枠は React Flow が実際に描画しているノード座標(内部の positionAbsolute)から毎回ライブ計算する。
+ * 制御state(nodes)ではなく内部座標を使うのは、extentによる縦クランプ後の実描画位置とグループ枠を必ず一致させ、
+ * プロジェクト高さ変更中もノードとズレなく追従させるため(#24)。ドラッグ中もリアルタイムに追従する。
  */
-export function GroupBoxOverlay({ groups, taskNodes, onOpenGroup }: Props) {
+export function GroupBoxOverlay({ groups, onOpenGroup }: Props) {
   const { x: panX, y: panY, zoom } = useViewport();
+
+  const taskNodes = useStore(
+    useCallback((s: ReactFlowState) => {
+      const result: GroupBoxTaskNode[] = [];
+      for (const n of s.nodeLookup.values()) {
+        if (n.type !== 'taskBar') continue;
+        const groupId = (n.data as TaskBarNodeData).groupId;
+        if (!groupId) continue;
+        result.push({
+          id: n.id,
+          groupId,
+          x: n.internals.positionAbsolute.x,
+          y: n.internals.positionAbsolute.y,
+          width: n.measured?.width ?? n.width ?? 0,
+        });
+      }
+      return result;
+    }, []),
+    eqTaskNodes,
+  );
 
   const boxes = useMemo(() => {
     const byGroup = new Map<string, GroupBoxTaskNode[]>();

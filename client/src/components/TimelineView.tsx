@@ -55,7 +55,7 @@ import { TimelineNoteNode, type TimelineNoteNodeData } from './timeline/Timeline
 import { TimelineDateHeader } from './timeline/TimelineDateHeader';
 import { ProjectLabelColumn } from './timeline/ProjectLabelColumn';
 import { ProjectBandBackground } from './timeline/ProjectBandBackground';
-import { GroupBoxOverlay, type GroupBoxTaskNode } from './timeline/GroupBoxOverlay';
+import { GroupBoxOverlay } from './timeline/GroupBoxOverlay';
 import { TodayHighlight } from './timeline/TodayHighlight';
 import { AddItemPopover } from './timeline/AddItemPopover';
 
@@ -320,20 +320,6 @@ function TimelineCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleTasks, setEdges]);
 
-  const taskNodesForBoxes = useMemo<GroupBoxTaskNode[]>(
-    () =>
-      nodes
-        .filter((n) => n.type === 'taskBar')
-        .map((n) => ({
-          id: n.id,
-          groupId: (n.data as TaskBarNodeData).groupId,
-          x: n.position.x,
-          y: n.position.y,
-          width: n.width ?? 0,
-        })),
-    [nodes],
-  );
-
   // 各アイテムが属するバンド(node_yをband.yStart基準の相対オフセットとして永続化するために使う)
   const bandById = useMemo(() => {
     const map = new Map<string, ProjectBand>();
@@ -526,7 +512,7 @@ function TimelineCanvas({
                 <Background variant={BackgroundVariant.Lines} gap={DAY_WIDTH} color="var(--border)" />
                 <ProjectBandBackground bands={bands} />
                 <TodayHighlight todayOffset={todayOffset} todayInRange={todayInRange} />
-                <GroupBoxOverlay groups={groups} taskNodes={taskNodesForBoxes} onOpenGroup={onOpenGroup} />
+                <GroupBoxOverlay groups={groups} onOpenGroup={onOpenGroup} />
               </ReactFlow>
               {addPopover && (
                 <AddItemPopover
