@@ -1,4 +1,5 @@
 # Team Timeline
+![image](https://github.com/user-attachments/assets/cef555ec-0eab-4293-a737-8bd04271d37e)
 
 チームのメンバーそれぞれが「いま何をやっているか」をひと目で把握するための、シンプルな進捗管理ツールにゃ。Excel での進捗管理を置き換える目的で作った個人プロジェクトで、業務固有の要素は含まない汎用ツールです。
 
