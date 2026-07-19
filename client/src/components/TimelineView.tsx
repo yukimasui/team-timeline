@@ -72,6 +72,7 @@ interface Props {
   timelines: Timeline[];
   onCreateTask: (data: CreateTaskInput, dependsOn: string[]) => Promise<void>;
   onSlideTaskNode: (taskId: string, data: { node_y: number; start_date: string; end_date: string }) => Promise<void>;
+  onSlideGroup: (updates: { id: string; node_y: number; start_date: string; end_date: string }[]) => Promise<void>;
   onResizeTaskNode: (taskId: string, data: { start_date?: string; end_date?: string }) => Promise<void>;
   onAddDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
   onRemoveDependency: (taskId: string, dependsOnTaskId: string) => Promise<void>;
@@ -109,6 +110,7 @@ function TimelineCanvas({
   timelines,
   onCreateTask,
   onSlideTaskNode,
+  onSlideGroup,
   onResizeTaskNode,
   onAddDependency,
   onRemoveDependency,
@@ -139,7 +141,7 @@ function TimelineCanvas({
     null,
   );
   const [resizing, setResizing] = useState<{ projectId: string; height: number } | null>(null);
-  const { screenToFlowPosition, setViewport } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getNodes } = useReactFlow();
 
   const activeTimeline = timelines.find((t) => t.id === activeTimelineId);
   const visibleProjects = useMemo(
@@ -373,6 +375,63 @@ function TimelineCanvas({
     [bandById, rangeStart, visibleTasks, visibleMarkers, onSlideTaskNode, onMoveMarkerNode, onSlideMarkerNode],
   );
 
+  // グループのタブをドラッグしてグループ内 taskBar ノードをまとめて平行移動する。移動は onNodeDrag と同じく
+  // controlled な setNodes(useNodesState)で行い、確定時は onNodeDragStop と同じ換算で日付/node_y へ落とす。
+  const groupDragBases = useRef<Map<string, { x: number; y: number }> | null>(null);
+
+  const handleGroupDragStart = useCallback(
+    (groupId: string) => {
+      const bases = new Map<string, { x: number; y: number }>();
+      for (const node of getNodes()) {
+        if (node.type === 'taskBar' && (node.data as TaskBarNodeData).groupId === groupId) {
+          bases.set(node.id, { x: node.position.x, y: node.position.y });
+        }
+      }
+      groupDragBases.current = bases;
+    },
+    [getNodes],
+  );
+
+  const handleGroupDragMove = useCallback(
+    (snappedDx: number, rawDy: number) => {
+      const bases = groupDragBases.current;
+      if (!bases) return;
+      setNodes((nds) =>
+        nds.map((n) => {
+          const base = bases.get(n.id);
+          if (!base) return n;
+          return { ...n, position: { x: base.x + snappedDx, y: Math.max(base.y + rawDy, 0) } };
+        }),
+      );
+    },
+    [setNodes],
+  );
+
+  const handleGroupDragEnd = useCallback(
+    (groupId: string, moved: boolean) => {
+      groupDragBases.current = null;
+      if (!moved) {
+        onOpenGroup(groupId);
+        return;
+      }
+      const updates: { id: string; node_y: number; start_date: string; end_date: string }[] = [];
+      for (const node of getNodes()) {
+        if (node.type !== 'taskBar') continue;
+        if ((node.data as TaskBarNodeData).groupId !== groupId) continue;
+        const task = visibleTasks.find((t) => t.id === node.id);
+        if (!task) continue;
+        const band = bandById.get(node.id);
+        const y = Math.round(node.position.y) - (band?.yStart ?? 0);
+        const dayIndex = Math.round(node.position.x / DAY_WIDTH);
+        const newStart = addDays(rangeStart, dayIndex);
+        const duration = dayDiff(task.start_date, task.end_date);
+        updates.push({ id: node.id, node_y: y, start_date: newStart, end_date: addDays(newStart, duration) });
+      }
+      if (updates.length > 0) void onSlideGroup(updates);
+    },
+    [getNodes, visibleTasks, bandById, rangeStart, onSlideGroup, onOpenGroup],
+  );
+
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
       for (const e of deleted) {
@@ -512,7 +571,12 @@ function TimelineCanvas({
                 <Background variant={BackgroundVariant.Lines} gap={DAY_WIDTH} color="var(--border)" />
                 <ProjectBandBackground bands={bands} />
                 <TodayHighlight todayOffset={todayOffset} todayInRange={todayInRange} />
-                <GroupBoxOverlay groups={groups} onOpenGroup={onOpenGroup} />
+                <GroupBoxOverlay
+                  groups={groups}
+                  onGroupDragStart={handleGroupDragStart}
+                  onGroupDragMove={handleGroupDragMove}
+                  onGroupDragEnd={handleGroupDragEnd}
+                />
               </ReactFlow>
               {addPopover && (
                 <AddItemPopover

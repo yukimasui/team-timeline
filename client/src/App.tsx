@@ -225,6 +225,17 @@ function App() {
     });
   }
 
+  async function handleSlideGroup(updates: { id: string; node_y: number; start_date: string; end_date: string }[]) {
+    await withErrorHandling(async () => {
+      await Promise.all(
+        updates.map((u) =>
+          api.updateTask(u.id, { node_y: u.node_y, start_date: u.start_date, end_date: u.end_date }),
+        ),
+      );
+      await refresh();
+    });
+  }
+
   async function handleCreateMarker(data: CreateMarkerInput) {
     await withErrorHandling(async () => {
       await api.createMarker(data);
@@ -358,6 +369,7 @@ function App() {
               timelines={timelines}
               onCreateTask={handleCreateTask}
               onSlideTaskNode={handleSlideTaskNode}
+              onSlideGroup={handleSlideGroup}
               onResizeTaskNode={handleResizeTaskNode}
               onAddDependency={handleAddDependency}
               onRemoveDependency={handleRemoveDependency}

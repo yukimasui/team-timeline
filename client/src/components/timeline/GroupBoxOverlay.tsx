@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useStore, useViewport, type ReactFlowState } from '@xyflow/react';
 import type { Group } from '@/types';
-import { BAR_HEIGHT, BOX_PAD } from './constants';
+import { BAR_HEIGHT, BOX_PAD, DAY_WIDTH } from './constants';
 import type { TaskBarNodeData } from './TaskBarNode';
 
 export interface GroupBoxTaskNode {
@@ -12,9 +12,17 @@ export interface GroupBoxTaskNode {
   width: number;
 }
 
+/** これ未満のドラッグはクリック(グループ編集)として扱う */
+const DRAG_THRESHOLD_PX = 4;
+
 interface Props {
   groups: Group[];
-  onOpenGroup: (id: string) => void;
+  /** タブを掴んだ瞬間。TimelineView 側で対象ノードの基準位置をスナップショットする */
+  onGroupDragStart: (groupId: string) => void;
+  /** ドラッグ中。フロー座標での移動量(X は日毎スナップ済み・Y は自由) */
+  onGroupDragMove: (snappedDx: number, rawDy: number) => void;
+  /** 指を離した。moved=true なら一括確定、false ならクリック扱い(グループ編集を開く) */
+  onGroupDragEnd: (groupId: string, moved: boolean) => void;
 }
 
 function eqTaskNodes(a: GroupBoxTaskNode[], b: GroupBoxTaskNode[]) {
@@ -38,8 +46,54 @@ function eqTaskNodes(a: GroupBoxTaskNode[], b: GroupBoxTaskNode[]) {
  * 制御state(nodes)ではなく内部座標を使うのは、extentによる縦クランプ後の実描画位置とグループ枠を必ず一致させ、
  * プロジェクト高さ変更中もノードとズレなく追従させるため(#24)。ドラッグ中もリアルタイムに追従する。
  */
-export function GroupBoxOverlay({ groups, onOpenGroup }: Props) {
+export function GroupBoxOverlay({ groups, onGroupDragStart, onGroupDragMove, onGroupDragEnd }: Props) {
   const { x: panX, y: panY, zoom } = useViewport();
+  const dragRef = useRef<{
+    groupId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+
+  // グループのタブを掴んでドラッグすると、そのグループの taskBar ノードをまとめて平行移動する。
+  // 実際のノード移動は TimelineView 側の controlled setNodes(useNodesState)で行う。ここはポインタ入力に専念し、
+  // フロー座標の移動量だけを親へ渡す。setPointerCapture でポインタをタブに固定し React Flow のパン処理と競合させない。
+  const handleTabPointerDown = useCallback(
+    (event: React.PointerEvent, groupId: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+      dragRef.current = { groupId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
+      onGroupDragStart(groupId);
+    },
+    [onGroupDragStart],
+  );
+
+  const handleTabPointerMove = useCallback(
+    (event: React.PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const rawDx = (event.clientX - drag.startX) / zoom;
+      const rawDy = (event.clientY - drag.startY) / zoom;
+      if (Math.abs(event.clientX - drag.startX) >= DRAG_THRESHOLD_PX || Math.abs(event.clientY - drag.startY) >= DRAG_THRESHOLD_PX) {
+        drag.moved = true;
+      }
+      const snappedDx = Math.round(rawDx / DAY_WIDTH) * DAY_WIDTH;
+      onGroupDragMove(snappedDx, rawDy);
+    },
+    [zoom, onGroupDragMove],
+  );
+
+  const handleTabPointerUp = useCallback(
+    (event: React.PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      dragRef.current = null;
+      onGroupDragEnd(drag.groupId, drag.moved);
+    },
+    [onGroupDragEnd],
+  );
 
   const taskNodes = useStore(
     useCallback((s: ReactFlowState) => {
@@ -95,8 +149,10 @@ export function GroupBoxOverlay({ groups, onOpenGroup }: Props) {
             />
             <button
               type="button"
-              onClick={() => onOpenGroup(group.id)}
-              className="absolute z-[3] truncate rounded px-1.5 text-[10px] font-medium text-white shadow-sm hover:opacity-90"
+              onPointerDown={(e) => handleTabPointerDown(e, group.id)}
+              onPointerMove={handleTabPointerMove}
+              onPointerUp={handleTabPointerUp}
+              className="nopan absolute z-[10] cursor-grab touch-none truncate rounded px-1.5 text-[10px] font-medium text-white shadow-sm hover:opacity-90 active:cursor-grabbing"
               style={{ left, top: top - 14, maxWidth: width, backgroundColor: group.color }}
             >
               {group.name}
