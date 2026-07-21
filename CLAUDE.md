@@ -96,7 +96,7 @@ API_BASE="http://localhost:8123" python3 scripts/seed.py  # ポートを変え�
 - `TaskDialog` はトリガーボタンから開く通常パターンと、`open`/`onOpenChange` を渡す外部制御パターンの両方に対応している(タイムラインでタスクバーをダブルクリックして編集する導線で後者を使用)。新しいダイアログもこの形に揃える。
 - SQLiteのマイグレーションは `server/migrations/*.sql` に追加し、`sqlx::migrate!("./migrations")` で起動時に自動適用される(`db.rs`)。マイグレーションファイルはコンパイル時にバイナリへ埋め込まれるため、Dockerの実行用ステージにmigrationsディレクトリをコピーする必要はない。
   - **一度適用されたマイグレーションファイルの中身は変更しない。** sqlxはファイルごとにチェックサムを記録しており、適用済みのファイルを書き換えて再起動すると `migration N was previously applied but has been modified` で起動不能になる(実際に開発中のDockerボリュームで発生した)。スキーマを直したい場合は新しい番号のマイグレーションファイルを追加する。ローカル/Dockerのdata volumeしか汚れていない場合は `rm -rf server/data`(ローカル)や `docker compose down -v`(Docker)でボリュームごと作り直しても良い。
-- タイムラインの日付範囲は現状「2026年通年+実タスクの範囲」を表示する固定仕様(`TimelineView.tsx`の`YEAR_START`/`YEAR_END`)。可変レンジ化は将来対応。
+- タイムラインの表示範囲は `timeline/dateRange.ts` の `DateRange`(`{ start, end }`、`end`は排他的)で持つ。年はこの期間を作るためのUIプリセットにすぎず、`TimelineRangeNav`が`‹ 2026年 ›`の矢印送りで年単位に切り替える(将来任意期間ピッカーに差し替える際もこの構造は変えない想定)。選択中の範囲は`localStorage`(`team-timeline:timeline-range`)に保存し次回起動時に復元する。表示期間と全く重ならないタスク/マーカーは除外し、またぐタスクは座標をクリップせず(`startOffset`が負や`totalDays`超過になっても計算値のまま)描画してReactFlowの`translateExtent`で見切れさせる(クリップするとドラッグ/リサイズ時に切れた分の日数が失われ日付計算が壊れるため)。
 - タイムラインの日付ヘッダは年/月/日の3段組み(`groupConsecutive`で連続する日付を年・月単位にまとめてセル幅を決めている)。土曜は青、日曜は赤で色分け。
 - タイムラインのタスクバーの色はステータスで切り替える(`barStyle()`関数): 未着手=担当者カラーを半透明、進行中=担当者カラー原色、完了=枠線が担当者カラーで内側は視認性重視の濃いめグレー(`#9ca3af`)固定。
 - タイムラインの空いている場所をクリックするとその日を開始日・終了日にしたタスク追加ダイアログが開く(`handleRowClick`)。クリック判定は`(e.target as HTMLElement).closest('button')`でタスクバー等のボタン要素上のクリックを除外している。

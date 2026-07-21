@@ -34,6 +34,8 @@ import { TaskDialog } from './TaskDialog';
 import { EventDialog } from './EventDialog';
 import { TimelineTabs } from './TimelineTabs';
 import { addDays, dayDiff, memberOf, todayStr } from '@/utils';
+import { type DateRange, currentYear, loadRange, saveRange, yearRange } from './timeline/dateRange';
+import { TimelineRangeNav } from './timeline/TimelineRangeNav';
 import { assignLanes, type LayoutItem } from '@/lib/ganttLayout';
 import {
   BAR_HEIGHT,
@@ -93,9 +95,6 @@ interface Props {
   onResizeProject: (id: string, height: number) => Promise<void>;
 }
 
-const YEAR_START = '2026-01-01';
-const YEAR_END = '2027-01-01';
-
 export function TimelineView(props: Props) {
   return (
     <ReactFlowProvider>
@@ -144,6 +143,8 @@ function TimelineCanvas({
     null,
   );
   const [resizing, setResizing] = useState<{ projectId: string; height: number } | null>(null);
+  const [range, setRange] = useState<DateRange>(() => loadRange() ?? yearRange(currentYear()));
+  const [wantJumpToToday, setWantJumpToToday] = useState(false);
   const { screenToFlowPosition, setViewport, getViewport, getNodes } = useReactFlow();
   const jumpAnimRef = useRef<number | null>(null);
 
@@ -154,24 +155,38 @@ function TimelineCanvas({
     };
   }, []);
 
+  useEffect(() => {
+    saveRange(range);
+  }, [range]);
+
   const activeTimeline = timelines.find((t) => t.id === activeTimelineId);
   const visibleProjects = useMemo(
     () => (activeTimeline ? projects.filter((p) => activeTimeline.project_ids.includes(p.id)) : projects),
     [activeTimeline, projects],
   );
   const visibleProjectIds = useMemo(() => new Set(visibleProjects.map((p) => p.id)), [visibleProjects]);
-  const visibleTasks = useMemo(() => tasks.filter((t) => visibleProjectIds.has(t.project_id)), [tasks, visibleProjectIds]);
+  // 表示期間と全く重ならないタスク/マーカーは除外する。またぐものは座標をクリップせずそのまま描画する
+  // (クリップするとドラッグ/リサイズ時に切れた分の日数が失われて日付計算が壊れるため)
+  const visibleTasks = useMemo(
+    () =>
+      tasks.filter(
+        (t) => visibleProjectIds.has(t.project_id) && t.end_date >= range.start && t.start_date < range.end,
+      ),
+    [tasks, visibleProjectIds, range],
+  );
   const visibleMarkers = useMemo(
-    () => markers.filter((m) => visibleProjectIds.has(m.project_id)),
-    [markers, visibleProjectIds],
+    () =>
+      markers.filter(
+        (m) =>
+          visibleProjectIds.has(m.project_id) &&
+          (m.end_date ?? m.start_date) >= range.start &&
+          m.start_date < range.end,
+      ),
+    [markers, visibleProjectIds, range],
   );
 
-  // 現状はタスクの有無にかかわらず2026年通年を基準表示にする(将来的に可変レンジ化する想定)
-  const starts = [...visibleTasks.map((t) => t.start_date), ...visibleMarkers.map((m) => m.start_date)];
-  const ends = [...visibleTasks.map((t) => t.end_date), ...visibleMarkers.map((m) => m.end_date ?? m.start_date)];
-  const rangeStart = starts.length > 0 ? [YEAR_START, ...starts].reduce((a, b) => (a < b ? a : b)) : YEAR_START;
-  const rangeEndRaw = ends.length > 0 ? ends.reduce((a, b) => (a > b ? a : b)) : YEAR_START;
-  const rangeEnd = [YEAR_END, addDays(rangeEndRaw, 1)].reduce((a, b) => (a > b ? a : b));
+  const rangeStart = range.start;
+  const rangeEnd = range.end;
   const totalDays = Math.max(dayDiff(rangeStart, rangeEnd), 1);
   const days = useMemo(() => Array.from({ length: totalDays }, (_, i) => addDays(rangeStart, i)), [totalDays, rangeStart]);
   const yearGroups = useMemo(() => groupConsecutiveWithOffset(days, (d) => d.slice(0, 4)), [days]);
@@ -484,8 +499,7 @@ function TimelineCanvas({
   // setViewportに`duration`を渡すとReactFlow内部のd3トランジション(interpolateZoom)が
   // 「一旦引いてから寄る」経路を作ってしまう。ズームは無効化しているビューなので、
   // zoomは1に固定したままX方向だけを自前で補間してすべらせる。
-  function jumpToToday() {
-    if (!todayInRange) return;
+  function performJump() {
     const width = wrapperRef.current?.clientWidth ?? 800;
     const targetFlowX = todayOffset * DAY_WIDTH + DAY_WIDTH / 2;
     const toX = width / 2 - targetFlowX;
@@ -502,6 +516,24 @@ function TimelineCanvas({
     }
     jumpAnimRef.current = requestAnimationFrame(step);
   }
+
+  // 今日が表示期間外なら、まず期間を今年に切り替えてからジャンプする(state反映後にscrollするようフラグで待つ)
+  function jumpToToday() {
+    if (!todayInRange) {
+      setRange(yearRange(currentYear()));
+      setWantJumpToToday(true);
+      return;
+    }
+    performJump();
+  }
+
+  useEffect(() => {
+    if (wantJumpToToday && todayInRange) {
+      performJump();
+      setWantJumpToToday(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantJumpToToday, todayInRange]);
 
   function handleResizeStart(projectId: string, startHeight: number, startClientY: number) {
     setResizing({ projectId, height: startHeight });
@@ -537,9 +569,12 @@ function TimelineCanvas({
           onUpdateTimeline={onUpdateTimeline}
           onDeleteTimeline={onDeleteTimeline}
         />
-        <Button type="button" variant="outline" size="sm" onClick={jumpToToday} disabled={!todayInRange} className="shrink-0">
-          今日
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <TimelineRangeNav range={range} onChange={setRange} />
+          <Button type="button" variant="outline" size="sm" onClick={jumpToToday}>
+            今日
+          </Button>
+        </div>
       </div>
 
       {visibleProjects.length === 0 ? (
