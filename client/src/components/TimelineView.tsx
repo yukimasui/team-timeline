@@ -61,6 +61,9 @@ import { AddItemPopover } from './timeline/AddItemPopover';
 
 const nodeTypes = { taskBar: TaskBarNode, event: TimelineEventNode, note: TimelineNoteNode };
 
+// 「今日」ジャンプの横スクロールにかける時間(ms)。
+const JUMP_DURATION_MS = 300;
+
 type TimelineNodeData = TaskBarNodeData | TimelineEventNodeData | TimelineNoteNodeData;
 
 interface Props {
@@ -141,7 +144,15 @@ function TimelineCanvas({
     null,
   );
   const [resizing, setResizing] = useState<{ projectId: string; height: number } | null>(null);
-  const { screenToFlowPosition, setViewport, getNodes } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getViewport, getNodes } = useReactFlow();
+  const jumpAnimRef = useRef<number | null>(null);
+
+  // アニメーション中にビューを切り替えても、消えたコンポーネントからsetViewportが呼ばれないようにする。
+  useEffect(() => {
+    return () => {
+      if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
+    };
+  }, []);
 
   const activeTimeline = timelines.find((t) => t.id === activeTimelineId);
   const visibleProjects = useMemo(
@@ -470,12 +481,26 @@ function TimelineCanvas({
     setAddPopover(null);
   }
 
+  // setViewportに`duration`を渡すとReactFlow内部のd3トランジション(interpolateZoom)が
+  // 「一旦引いてから寄る」経路を作ってしまう。ズームは無効化しているビューなので、
+  // zoomは1に固定したままX方向だけを自前で補間してすべらせる。
   function jumpToToday() {
     if (!todayInRange) return;
     const width = wrapperRef.current?.clientWidth ?? 800;
     const targetFlowX = todayOffset * DAY_WIDTH + DAY_WIDTH / 2;
-    const x = width / 2 - targetFlowX;
-    setViewport({ x, y: 0, zoom: 1 }, { duration: 300 });
+    const toX = width / 2 - targetFlowX;
+    const fromX = getViewport().x;
+
+    if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
+
+    const startedAt = performance.now();
+    function step(now: number) {
+      const t = Math.min(1, (now - startedAt) / JUMP_DURATION_MS);
+      const eased = 1 - (1 - t) ** 3; // easeOutCubic
+      setViewport({ x: fromX + (toX - fromX) * eased, y: 0, zoom: 1 });
+      jumpAnimRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    }
+    jumpAnimRef.current = requestAnimationFrame(step);
   }
 
   function handleResizeStart(projectId: string, startHeight: number, startClientY: number) {
