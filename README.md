@@ -1,7 +1,7 @@
 # Team Timeline
 ![image](https://github.com/user-attachments/assets/cef555ec-0eab-4293-a737-8bd04271d37e)
 
-チームのメンバーそれぞれが「いま何をやっているか」をひと目で把握するための、シンプルな進捗管理ツールにゃ。Excel での進捗管理を置き換える目的で作った個人プロジェクトで、業務固有の要素は含まない汎用ツールです。
+チームのメンバーそれぞれが「いま何をやっているか」をひと目で把握するための、シンプルな進捗管理ツールです。Excel での進捗管理を置き換える目的で作った個人プロジェクトで、業務固有の要素は含まない汎用ツールです。
 
 タスクを **3つのビュー**で見せます:
 
@@ -22,7 +22,7 @@
 docker compose up --build -d
 ```
 
-ブラウザで <http://localhost:8090> を開くにゃ(ホスト側の公開ポートはデフォルト 8090。`HOST_PORT=xxxx` で変更可)。SQLite ファイルは Docker ボリュームに永続化されます。
+ブラウザで <http://localhost:8090> を開きます(ホスト側の公開ポートはデフォルト 8090。`HOST_PORT=xxxx` で変更可)。SQLite ファイルは Docker ボリュームに永続化されます。
 
 ## ローカル開発
 
@@ -53,4 +53,4 @@ cd client && npm install && npm run dev
 
 ## ライセンス
 
-[MIT](./LICENSE) にゃ。
+[MIT](./LICENSE)
