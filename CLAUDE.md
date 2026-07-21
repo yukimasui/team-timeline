@@ -1,11 +1,11 @@
 # Team Timeline
 
-チームメンバーそれぞれが「何をやっているか」を可視化するツール。タイムライン(ガント風)・カンバン・テーブル・依存関係グラフ(Blenderのマテリアルノードのようにタスク同士をドラッグで接続する)の4ビューでタスクを見せる。
+チームメンバーそれぞれが「何をやっているか」を可視化するツール。タイムライン(ガント風)・カンバン・テーブルの3ビューでタスクを見せる。タスク同士の依存関係はタイムライン上に矢印で描画する。
 
 ## アーキテクチャ
 
 - 単一のDockerコンテナで完結させる構成。Axumがビルド済みReact静的ファイルの配信とAPIの両方を担当し、別途フロント用コンテナは立てない。
-- `client/` — React + TypeScript + Vite。UIは shadcn/ui(Tailwind CSS v4)、依存関係グラフは `@xyflow/react`(React Flow)。
+- `client/` — React + TypeScript + Vite。UIは shadcn/ui(Tailwind CSS v4)、タイムラインは `@xyflow/react`(React Flow)ベース。
 - `server/` — Rust + Axum + sqlx(SQLite)。データは1ファイルのSQLiteで永続化し、Dockerではボリュームマウントする。
 - ローカル開発時はフロント(Vite dev server, 5173)とバック(cargo run, デフォルト8080)を別プロセスで動かし、Viteのproxyで `/api` をバックエンドへ転送する。本番はAxumが `client/dist` を静的配信するのでプロキシは使わない。
 
@@ -23,11 +23,9 @@ client/               React + TS + Vite フロントエンド
       MemberDialog.tsx    メンバー追加ダイアログ
       TaskDialog.tsx      タスク追加/編集ダイアログ(open/onOpenChangeで外部制御も可)
       TimelineView.tsx    ガント風タイムライン(CSS Gridで自前実装、DAY_WIDTH=32px)
-      TimelineTabs.tsx    タイムライン/グラフ共通のタブバー(timelinesでプロジェクトを絞り込む)
+      TimelineTabs.tsx    タイムラインのタブバー(timelinesでプロジェクトを絞り込む)
       KanbanView.tsx      ステータス別カンバン(HTML5 native drag & drop)
       TableView.tsx       一覧テーブル
-      GraphView.tsx       依存関係グラフ(React Flow)。X座標はタスクのstart_dateから機械的に計算し横ドラッグ不可、縦のみ自由
-      TaskNode.tsx        グラフのカスタムノード
 server/                Rust + Axum バックエンド
   src/
     main.rs             ルーティング定義・起動処理
@@ -47,7 +45,7 @@ docker-compose.yml      SQLite用ボリューム付きの単一サービス構�
 - `members`: id(uuid), name, color, created_at — タスクの担当者
 - `projects`: id(uuid), name, color, member_id(FK, 任意), created_at — タイムラインの行の単位。`member_id`はデフォルト担当者(タイムライン上でタスクを追加する際の初期値)
 - `groups`: id(uuid), project_id(FK), name, color, created_at — プロジェクト内でタスクを後から束ねる任意の集合(PowerPointの要素グループ化に近い)。1グループは1プロジェクトに属する
-- `tasks`: id(uuid), project_id(FK, 必須), group_id(FK, 任意/NULL可), member_id(FK), title, description, status(todo/in_progress/done), priority(high/medium/low), start_date, end_date, node_x, node_y(グラフ上の座標), created_at, updated_at
+- `tasks`: id(uuid), project_id(FK, 必須), group_id(FK, 任意/NULL可), member_id(FK), title, description, status(todo/in_progress/done), priority(high/medium/low), start_date, end_date, node_x, node_y(タイムライン上の座標), created_at, updated_at
   - タスクはプロジェクトに直接所属(必須)。グループへの所属は任意で、グループなしのタスクも存在できる
   - グループを削除してもタスクは消えない(`group_id`がNULLに戻るだけ。`ON DELETE SET NULL`)
 - `task_dependencies`: task_id, depends_on_task_id の複合主キー。「task_idはdepends_on_task_idの完了に依存する」というエッジ。ON DELETE CASCADEでタスク削除時に自動でエッジも消える。
@@ -95,16 +93,16 @@ API_BASE="http://localhost:8123" python3 scripts/seed.py  # ポートを変え�
 
 - フロントのimportパスエイリアスは `@/*` → `client/src/*`(tsconfig + vite.config.ts両方に設定済み)。
 - 新しいUI部品はまず `npx shadcn@latest add <component>` で追加してから使う。素のCSSを書くより既存のプリミティブ + Tailwindユーティリティを優先する。
-- `TaskDialog` はトリガーボタンから開く通常パターンと、`open`/`onOpenChange` を渡す外部制御パターンの両方に対応している(依存関係グラフでノードをダブルクリックして編集する導線で後者を使用)。新しいダイアログもこの形に揃える。
+- `TaskDialog` はトリガーボタンから開く通常パターンと、`open`/`onOpenChange` を渡す外部制御パターンの両方に対応している(タイムラインでタスクバーをダブルクリックして編集する導線で後者を使用)。新しいダイアログもこの形に揃える。
 - SQLiteのマイグレーションは `server/migrations/*.sql` に追加し、`sqlx::migrate!("./migrations")` で起動時に自動適用される(`db.rs`)。マイグレーションファイルはコンパイル時にバイナリへ埋め込まれるため、Dockerの実行用ステージにmigrationsディレクトリをコピーする必要はない。
   - **一度適用されたマイグレーションファイルの中身は変更しない。** sqlxはファイルごとにチェックサムを記録しており、適用済みのファイルを書き換えて再起動すると `migration N was previously applied but has been modified` で起動不能になる(実際に開発中のDockerボリュームで発生した)。スキーマを直したい場合は新しい番号のマイグレーションファイルを追加する。ローカル/Dockerのdata volumeしか汚れていない場合は `rm -rf server/data`(ローカル)や `docker compose down -v`(Docker)でボリュームごと作り直しても良い。
 - タイムラインの日付範囲は現状「2026年通年+実タスクの範囲」を表示する固定仕様(`TimelineView.tsx`の`YEAR_START`/`YEAR_END`)。可変レンジ化は将来対応。
 - タイムラインの日付ヘッダは年/月/日の3段組み(`groupConsecutive`で連続する日付を年・月単位にまとめてセル幅を決めている)。土曜は青、日曜は赤で色分け。
 - タイムラインのタスクバーの色はステータスで切り替える(`barStyle()`関数): 未着手=担当者カラーを半透明、進行中=担当者カラー原色、完了=枠線が担当者カラーで内側は視認性重視の濃いめグレー(`#9ca3af`)固定。
 - タイムラインの空いている場所をクリックするとその日を開始日・終了日にしたタスク追加ダイアログが開く(`handleRowClick`)。クリック判定は`(e.target as HTMLElement).closest('button')`でタスクバー等のボタン要素上のクリックを除外している。
-- タイムラインのタブ(`timelines`)はプロジェクトの表示絞り込みに使う。「全体」タブはDBに存在しない特別なUI状態(`activeTimelineId === null`)。タブバーは`TimelineTabs.tsx`としてTimelineView/GraphViewで共有しているが、タブの選択状態(`activeTimelineId`)自体は各ビューがローカルstateで独立して持つ(意図的な設計。ビューを切り替えても互いのタブ選択に影響しない)。
+- タイムラインのタブ(`timelines`)はプロジェクトの表示絞り込みに使う。「全体」タブはDBに存在しない特別なUI状態(`activeTimelineId === null`)。タブバーは`TimelineTabs.tsx`に切り出してあり、タブの選択状態(`activeTimelineId`)はTimelineViewがローカルstateで持つ。
 - タイムラインのタスクバー・イベントバーは横方向にドラッグでき、`onNodeDragStop`でX座標を`DAY_WIDTH`(32px)単位の日数に丸めて`start_date`を再計算し、元の期間長(`dayDiff(start_date, end_date)`)を維持したまま`end_date`も平行移動して算出、`node_y`とあわせて`onSlideTaskNode`/`onSlideMarkerNode`(App.tsxの`handleSlideTaskNode`/`handleSlideMarkerNode`)経由でAPIへPUTする(スナップはドラッグ確定時のみで、リサイズと同じ設計)。ノート(`note`)は日付を持たないため対象外で、従来通り`node_x`/`node_y`のみを自由に更新する。左右の端の細いハンドル(`NodeResizeControl`)をつまむと、こちらはバー全体のスライドではなく片側の日付だけを伸縮する`onResizeTaskNode`/`onResizeMarkerNode`が呼ばれる。
-- 依存関係グラフ(GraphView)は将来的に廃止予定のビュー(意図的に横スライド機能は入れていない)。ノードは横方向(X)がタスクの`start_date`から機械的に計算され、`extent`でドラッグをロックしている(横には動かせない)。縦方向(Y)のみ自由にドラッグでき、`onNodeDragStop`でAPIへPUTして`node_y`を永続化する(`node_x`もPUTはされるが表示上は常にstart_dateから再計算されるため無視される)。初期値(0)のタスクはインデックスベースの自動配置にフォールバックする。背景の日付ルーラーは`useViewport()`でパン量を取得し画面座標に変換して描画している(`GraphView.tsx`の`DateAxis`)。
+- タスク同士の依存関係(`task_dependencies`)は、専用の依存関係グラフビュー(GraphView)を廃止した後もデータ・機能ともに現役。タイムライン上の矢印(`TimelineView.tsx`のエッジ生成)、TableViewの依存タスク表示、TaskDialogでの依存編集で使う。`tasks.node_x`はGraphViewの名残でタスクでは未使用(タイムラインのX座標は`start_date`から計算する)だが、ノート(`markers`)では現役なのでカラム自体は残している。
 - git運用: `main`を汚さないよう`develop`ブランチで作業し、区切りの良いところでPRにまとめる。
 - **commit / push / PR作成など、リポジトリの状態や履歴を変える操作は必ず事前にユーザーに確認を取り、了承を得てから実行する。** 了承なしに勝手に実行しない。
 - Issueに取り組んだときは、

@@ -23,15 +23,13 @@ import { EventDialog } from './components/EventDialog';
 import { TimelineView } from './components/TimelineView';
 import { KanbanView } from './components/KanbanView';
 import { TableView } from './components/TableView';
-import { GraphView } from './components/GraphView';
 
-type ViewKey = 'timeline' | 'kanban' | 'table' | 'graph';
+type ViewKey = 'timeline' | 'kanban' | 'table';
 
 const VIEWS: { key: ViewKey; label: string }[] = [
   { key: 'timeline', label: 'タイムライン' },
   { key: 'kanban', label: 'カンバン' },
   { key: 'table', label: 'テーブル' },
-  { key: 'graph', label: '依存関係グラフ' },
 ];
 
 function App() {
@@ -197,13 +195,6 @@ function App() {
   async function handleRemoveDependency(taskId: string, dependsOnTaskId: string) {
     await withErrorHandling(async () => {
       await api.removeDependency(taskId, dependsOnTaskId);
-      await refresh();
-    });
-  }
-
-  async function handleMoveNode(taskId: string, x: number, y: number) {
-    await withErrorHandling(async () => {
-      await api.updateTask(taskId, { node_x: x, node_y: y });
       await refresh();
     });
   }
@@ -407,21 +398,6 @@ function App() {
               onCreateTask={handleCreateTask}
               onUpdateTask={handleUpdateTask}
               onDeleteTask={handleDeleteTask}
-            />
-          )}
-          {view === 'graph' && (
-            <GraphView
-              members={members}
-              projects={projects}
-              tasks={tasks}
-              timelines={timelines}
-              onAddDependency={handleAddDependency}
-              onRemoveDependency={handleRemoveDependency}
-              onMoveNode={handleMoveNode}
-              onOpenTask={setEditingTaskId}
-              onCreateTimeline={handleCreateTimeline}
-              onUpdateTimeline={handleUpdateTimeline}
-              onDeleteTimeline={handleDeleteTimeline}
             />
           )}
         </main>
