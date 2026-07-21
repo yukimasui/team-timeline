@@ -3,6 +3,7 @@ import { api } from './api';
 import type {
   CreateGroupInput,
   CreateMarkerInput,
+  CreateMemberInput,
   CreateProjectInput,
   CreateTaskInput,
   CreateTimelineInput,
@@ -15,7 +16,7 @@ import type {
   UpdateMarkerInput,
   UpdateTaskInput,
 } from './types';
-import { MemberDialog } from './components/MemberDialog';
+import { MembersDialog } from './components/MembersDialog';
 import { ProjectDialog } from './components/ProjectDialog';
 import { GroupDialog } from './components/GroupDialog';
 import { TaskDialog } from './components/TaskDialog';
@@ -23,6 +24,13 @@ import { EventDialog } from './components/EventDialog';
 import { TimelineView } from './components/TimelineView';
 import { KanbanView } from './components/KanbanView';
 import { TableView } from './components/TableView';
+import { MenuIcon } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 type ViewKey = 'timeline' | 'kanban' | 'table';
 
@@ -42,6 +50,7 @@ function App() {
   const [view, setView] = useState<ViewKey>('timeline');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -78,9 +87,23 @@ function App() {
     }
   }
 
-  async function handleCreateMember(name: string, color: string) {
+  async function handleCreateMember(data: CreateMemberInput) {
     await withErrorHandling(async () => {
-      await api.createMember({ name, color });
+      await api.createMember(data);
+      await refresh();
+    });
+  }
+
+  async function handleUpdateMember(id: string, data: CreateMemberInput) {
+    await withErrorHandling(async () => {
+      await api.updateMember(id, data);
+      await refresh();
+    });
+  }
+
+  async function handleDeleteMember(id: string) {
+    await withErrorHandling(async () => {
+      await api.deleteMember(id);
       await refresh();
     });
   }
@@ -280,12 +303,23 @@ function App() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Team Timeline</h1>
-          <p className="text-sm text-muted-foreground">誰が何をやっているか、ひと目でわかるにゃ</p>
+        <div className="flex items-center gap-3">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted" aria-label="メニュー">
+                <MenuIcon className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => setMembersDialogOpen(true)}>メンバー編集</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <div>
+            <h1 className="text-xl font-semibold">Team Timeline</h1>
+            <p className="text-sm text-muted-foreground">誰が何をやっているか、ひと目でわかるにゃ</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <MemberDialog onCreate={handleCreateMember} />
+        <div className="flex flex-wrap items-center gap-2">
           <ProjectDialog
             members={members}
             onSubmit={handleCreateProject}
@@ -402,6 +436,16 @@ function App() {
           )}
         </main>
       )}
+
+      <MembersDialog
+        members={members}
+        tasks={tasks}
+        open={membersDialogOpen}
+        onOpenChange={setMembersDialogOpen}
+        onCreate={handleCreateMember}
+        onUpdate={handleUpdateMember}
+        onDelete={handleDeleteMember}
+      />
 
       {editingTask && (
         <TaskDialog
